@@ -1,16 +1,13 @@
-import { PrismaClient } from "../../generated/prisma/client";
-
-type PrismaClientInstance = InstanceType<typeof PrismaClient>;
+import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
-  __prisma: PrismaClientInstance | undefined;
+  __prisma: PrismaClient | undefined;
 };
 
-export function getPrisma(): PrismaClientInstance {
+export function getPrisma(): PrismaClient {
   if (globalForPrisma.__prisma) return globalForPrisma.__prisma;
 
-  // Prisma v7 types require an options object, but it works fine without one at runtime
-  const client = new (PrismaClient as unknown as new () => PrismaClientInstance)();
+  const client = new PrismaClient();
 
   if (process.env.NODE_ENV !== "production") {
     globalForPrisma.__prisma = client;
