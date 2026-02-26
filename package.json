@@ -4,26 +4,19 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "postinstall": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
-    "db:studio": "prisma studio"
+    "lint": "eslint"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.34",
     "@ai-sdk/react": "^3.0.103",
     "@codesandbox/sandpack-react": "^2.20.0",
-    "@prisma/client": "^7.4.1",
     "ai": "^6.0.101",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.575.0",
     "mermaid": "^11.12.3",
     "next": "16.1.6",
-    "prisma": "^7.4.1",
     "prismjs": "^1.30.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",

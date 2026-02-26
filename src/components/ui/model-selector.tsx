@@ -2,14 +2,19 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { ChevronDown, Search, Loader2 } from "lucide-react";
-import type { OpenRouterModel } from "@/app/api/models/route";
+
+interface OpenRouterModel {
+  id: string;
+  name: string;
+  context_length: number;
+  pricing: { prompt: string; completion: string };
+}
 
 interface ModelSelectorProps {
   value: string;
   onChange: (modelId: string) => void;
 }
 
-// Preset popular models shown when no search / as favorites at top
 const POPULAR_IDS = [
   "anthropic/claude-sonnet-4-20250514",
   "anthropic/claude-3.5-sonnet",
@@ -22,7 +27,6 @@ const POPULAR_IDS = [
 function formatPrice(perToken: string): string {
   const val = parseFloat(perToken);
   if (isNaN(val) || val === 0) return "Free";
-  // price is per-token, convert to per-million-tokens
   const perMillion = val * 1_000_000;
   if (perMillion < 0.01) return "<$0.01/M";
   return `$${perMillion.toFixed(2)}/M`;
@@ -40,9 +44,7 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
   const [fetched, setFetched] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
-  // Fetch models on first open
   const fetchModels = useCallback(async () => {
     if (fetched || loading) return;
     setLoading(true);
@@ -60,7 +62,6 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
     }
   }, [fetched, loading]);
 
-  // Close on click outside
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -73,7 +74,6 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
     }
   }, [open]);
 
-  // Focus search input when opened
   useEffect(() => {
     if (open) {
       fetchModels();
@@ -88,12 +88,10 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
     const list = q
       ? models.filter(
           (m) =>
-            m.id.toLowerCase().includes(q) ||
-            m.name.toLowerCase().includes(q)
+            m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)
         )
       : models;
 
-    // Sort: popular models first, then alphabetical
     return [...list].sort((a, b) => {
       const aPop = POPULAR_IDS.indexOf(a.id);
       const bPop = POPULAR_IDS.indexOf(b.id);
@@ -104,7 +102,6 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
     });
   }, [models, search]);
 
-  // Current display value
   const selectedModel = models.find((m) => m.id === value);
   const displayName = selectedModel?.name ?? value.split("/").pop() ?? value;
 
@@ -114,7 +111,12 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex h-9 w-full items-center justify-between rounded-md border border-[--gen-border] bg-[--gen-card] px-3 py-1 text-sm shadow-sm transition-colors hover:bg-[--gen-muted] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[--gen-primary]"
+        className="flex h-9 w-full items-center justify-between rounded-md px-3 py-1 text-sm shadow-sm transition-colors"
+        style={{
+          border: "1px solid var(--gen-border)",
+          background: "var(--gen-card)",
+          color: "var(--gen-foreground)",
+        }}
       >
         <span className="truncate text-left">{displayName}</span>
         <ChevronDown size={14} className="ml-2 flex-shrink-0 opacity-50" />
@@ -122,31 +124,41 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute z-50 mt-1 w-full min-w-[320px] right-0 rounded-lg border border-[--gen-border] bg-[--gen-card] shadow-lg">
+        <div
+          className="absolute z-50 mt-1 w-full min-w-[320px] right-0 rounded-lg shadow-lg"
+          style={{
+            border: "1px solid var(--gen-border)",
+            background: "var(--gen-card)",
+          }}
+        >
           {/* Search input */}
-          <div className="flex items-center gap-2 border-b border-[--gen-border] px-3 py-2">
-            <Search size={14} className="text-[--gen-muted-fg] flex-shrink-0" />
+          <div
+            className="flex items-center gap-2 px-3 py-2"
+            style={{ borderBottom: "1px solid var(--gen-border)" }}
+          >
+            <Search size={14} style={{ color: "var(--gen-muted-fg)" }} className="flex-shrink-0" />
             <input
               ref={inputRef}
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search models..."
-              className="w-full bg-transparent text-sm text-[--gen-foreground] placeholder:text-[--gen-muted-fg] focus:outline-none"
+              className="w-full bg-transparent text-sm focus:outline-none"
+              style={{ color: "var(--gen-foreground)" }}
             />
           </div>
 
           {/* Model list */}
-          <div ref={listRef} className="max-h-[300px] overflow-y-auto p-1">
+          <div className="max-h-[300px] overflow-y-auto p-1">
             {loading && (
-              <div className="flex items-center justify-center gap-2 py-6 text-[--gen-muted-fg]">
+              <div className="flex items-center justify-center gap-2 py-6" style={{ color: "var(--gen-muted-fg)" }}>
                 <Loader2 size={14} className="animate-spin" />
                 <span className="text-xs">Loading models...</span>
               </div>
             )}
 
             {!loading && filtered.length === 0 && (
-              <div className="py-6 text-center text-xs text-[--gen-muted-fg]">
+              <div className="py-6 text-center text-xs" style={{ color: "var(--gen-muted-fg)" }}>
                 {search ? "No models found" : "No models available"}
               </div>
             )}
@@ -162,33 +174,38 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
                     onChange(m.id);
                     setOpen(false);
                   }}
-                  className={`flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
+                  className="flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors"
+                  style={
                     isSelected
-                      ? "bg-[--gen-primary] text-white"
-                      : "hover:bg-[--gen-muted] text-[--gen-foreground]"
-                  }`}
+                      ? { background: "var(--gen-primary)", color: "#ffffff" }
+                      : { color: "var(--gen-foreground)" }
+                  }
+                  onMouseEnter={(e) => {
+                    if (!isSelected) e.currentTarget.style.background = "var(--gen-muted)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSelected) e.currentTarget.style.background = "transparent";
+                  }}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className="truncate font-medium text-xs">
-                        {m.name}
-                      </span>
+                      <span className="truncate font-medium text-xs">{m.name}</span>
                       {isPopular && (
                         <span
-                          className={`flex-shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${
+                          className="flex-shrink-0 rounded px-1 py-0.5 text-[10px] leading-none"
+                          style={
                             isSelected
-                              ? "bg-white/20 text-white"
-                              : "bg-[--gen-primary]/10 text-[--gen-primary]"
-                          }`}
+                              ? { background: "rgba(255,255,255,0.2)", color: "#fff" }
+                              : { background: "rgba(37,99,235,0.1)", color: "var(--gen-primary)" }
+                          }
                         >
                           Popular
                         </span>
                       )}
                     </div>
                     <div
-                      className={`mt-0.5 flex items-center gap-2 text-[10px] ${
-                        isSelected ? "text-white/70" : "text-[--gen-muted-fg]"
-                      }`}
+                      className="mt-0.5 flex items-center gap-2 text-[10px]"
+                      style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--gen-muted-fg)" }}
                     >
                       <span>{getProvider(m.id)}</span>
                       <span>·</span>

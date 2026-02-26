@@ -35,10 +35,11 @@ export function SettingsPanel() {
   } = useAppStore();
 
   return (
-    <div className="border-b border-[--gen-border]">
+    <div style={{ borderBottom: "1px solid var(--gen-border)" }}>
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-[--gen-foreground] hover:bg-[--gen-muted] transition-colors"
+        className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium transition-colors"
+        style={{ color: "var(--gen-foreground)" }}
       >
         <Settings2 size={16} />
         <span>Global Settings</span>
@@ -52,13 +53,13 @@ export function SettingsPanel() {
       {!collapsed && (
         <div className="px-4 pb-4 space-y-3">
           <div>
-            <label className="text-xs font-medium text-[--gen-muted-fg] mb-1 block">
+            <label className="text-xs font-medium mb-1 block" style={{ color: "var(--gen-muted-fg)" }}>
               AI Model
             </label>
             <ModelSelector value={model} onChange={setModel} />
           </div>
           <div>
-            <label className="text-xs font-medium text-[--gen-muted-fg] mb-1 block">
+            <label className="text-xs font-medium mb-1 block" style={{ color: "var(--gen-muted-fg)" }}>
               App Name
             </label>
             <Input
@@ -68,7 +69,7 @@ export function SettingsPanel() {
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-[--gen-muted-fg] mb-1 block">
+            <label className="text-xs font-medium mb-1 block" style={{ color: "var(--gen-muted-fg)" }}>
               Logo URL
             </label>
             <Input
@@ -78,7 +79,7 @@ export function SettingsPanel() {
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-[--gen-muted-fg] mb-1 block">
+            <label className="text-xs font-medium mb-1 block" style={{ color: "var(--gen-muted-fg)" }}>
               Navigation Layout
             </label>
             <Select
@@ -88,7 +89,7 @@ export function SettingsPanel() {
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-[--gen-muted-fg] mb-1 block">
+            <label className="text-xs font-medium mb-1 block" style={{ color: "var(--gen-muted-fg)" }}>
               Industry Theme
             </label>
             <Select
