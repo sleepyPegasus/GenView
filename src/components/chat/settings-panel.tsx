@@ -3,6 +3,7 @@
 import { useAppStore, type NavLayout, type IndustryTheme } from "@/store/app-store";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { ModelSelector } from "@/components/ui/model-selector";
 import { ChevronDown, ChevronRight, Settings2 } from "lucide-react";
 import { useState } from "react";
 
@@ -16,15 +17,6 @@ const themeOptions = [
   { value: "dark-dashboard", label: "Dark Dashboard" },
   { value: "steel-metallurgy", label: "Steel & Metallurgy" },
   { value: "wind-energy", label: "Wind Energy" },
-];
-
-const modelOptions = [
-  { value: "anthropic/claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-  { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
-  { value: "openai/gpt-4o", label: "GPT-4o" },
-  { value: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
-  { value: "google/gemini-2.5-pro-preview", label: "Gemini 2.5 Pro" },
-  { value: "deepseek/deepseek-chat-v3-0324", label: "DeepSeek V3" },
 ];
 
 export function SettingsPanel() {
@@ -63,11 +55,7 @@ export function SettingsPanel() {
             <label className="text-xs font-medium text-[--gen-muted-fg] mb-1 block">
               AI Model
             </label>
-            <Select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              options={modelOptions}
-            />
+            <ModelSelector value={model} onChange={setModel} />
           </div>
           <div>
             <label className="text-xs font-medium text-[--gen-muted-fg] mb-1 block">
