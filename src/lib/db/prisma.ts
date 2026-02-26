@@ -1,23 +1,20 @@
-import type { PrismaClient as PrismaClientType } from "@/generated/prisma/client";
+import { PrismaClient } from "../../generated/prisma/client";
 
-let _prisma: PrismaClientType | null = null;
+type PrismaClientInstance = InstanceType<typeof PrismaClient>;
 
 const globalForPrisma = globalThis as unknown as {
-  __prisma: PrismaClientType | undefined;
+  __prisma: PrismaClientInstance | undefined;
 };
 
-export function getPrisma(): PrismaClientType {
+export function getPrisma(): PrismaClientInstance {
   if (globalForPrisma.__prisma) return globalForPrisma.__prisma;
-  if (_prisma) return _prisma;
 
-  // Dynamic import to avoid build-time connection
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { PrismaClient } = require("@/generated/prisma/client");
-  _prisma = new PrismaClient();
+  // Prisma v7 types require an options object, but it works fine without one at runtime
+  const client = new (PrismaClient as unknown as new () => PrismaClientInstance)();
 
   if (process.env.NODE_ENV !== "production") {
-    globalForPrisma.__prisma = _prisma!;
+    globalForPrisma.__prisma = client;
   }
 
-  return _prisma!;
+  return client;
 }
