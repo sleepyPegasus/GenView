@@ -11,8 +11,8 @@ export default function Home() {
     <div data-theme={theme} className="flex h-screen w-screen overflow-hidden">
       {/* Left Panel - Chat */}
       <div
-        className="h-full border-r border-[--gen-border] flex-shrink-0"
-        style={{ width: "35%" }}
+        className="h-full flex-shrink-0"
+        style={{ width: "35%", borderRight: "1px solid var(--gen-border)" }}
       >
         <ChatPanel />
       </div>

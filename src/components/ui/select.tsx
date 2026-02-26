@@ -6,12 +6,18 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
 }
 
 const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, options, ...props }, ref) => (
+  ({ className, options, style, ...props }, ref) => (
     <select
       className={cn(
-        "flex h-9 w-full rounded-md border border-[--gen-border] bg-[--gen-card] px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[--gen-primary] disabled:cursor-not-allowed disabled:opacity-50",
+        "flex h-9 w-full rounded-md px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
+      style={{
+        border: "1px solid var(--gen-border)",
+        background: "var(--gen-card)",
+        color: "var(--gen-foreground)",
+        ...style,
+      }}
       ref={ref}
       {...props}
     >

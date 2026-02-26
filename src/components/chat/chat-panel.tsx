@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { TextStreamChatTransport } from "ai";
 import { useAppStore } from "@/store/app-store";
 import {
   parseResponse,
@@ -31,22 +31,21 @@ export function ChatPanel() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState("");
 
-  // We use a ref to always pass the latest store values to the transport body
   const storeRef = useRef({ appName, logoUrl, navLayout, theme, model, currentCode, conversationId });
   storeRef.current = { appName, logoUrl, navLayout, theme, model, currentCode, conversationId };
 
   const transport = useMemo(
     () =>
-      new DefaultChatTransport({
+      new TextStreamChatTransport({
         api: "/api/chat",
         body: () => ({
-          appName: storeRef.current.appName,
-          logoUrl: storeRef.current.logoUrl,
-          navLayout: storeRef.current.navLayout,
+          app_name: storeRef.current.appName,
+          logo_url: storeRef.current.logoUrl,
+          nav_layout: storeRef.current.navLayout,
           theme: storeRef.current.theme,
           model: storeRef.current.model,
-          currentCode: storeRef.current.currentCode,
-          conversationId: storeRef.current.conversationId,
+          current_code: storeRef.current.currentCode,
+          conversation_id: storeRef.current.conversationId,
         }),
       }),
     []
@@ -67,7 +66,6 @@ export function ChatPanel() {
 
   const isStreaming = status === "streaming" || status === "submitted";
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -81,7 +79,6 @@ export function ChatPanel() {
     const content = getMessageText(lastMsg);
     if (!content) return;
 
-    // For TSX: attempt live preview during streaming
     const tsxCode = extractLatestCodeBlock(content, "tsx");
     if (tsxCode && tsxCode.length > 50) {
       setCurrentCode(tsxCode);
@@ -89,7 +86,6 @@ export function ChatPanel() {
       return;
     }
 
-    // For Mermaid: only render when the block is complete (debounce)
     if (hasCompleteCodeBlock(content)) {
       const mermaidCode = extractLatestCodeBlock(content, "mermaid");
       if (mermaidCode) {
@@ -102,10 +98,8 @@ export function ChatPanel() {
   const onSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!inputText.trim() || isStreaming) return;
-
     const text = inputText;
     setInputText("");
-
     await sendMessage({ text });
   };
 
@@ -117,19 +111,18 @@ export function ChatPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[--gen-card]">
-      {/* Settings */}
+    <div className="h-full flex flex-col" style={{ background: "var(--gen-card)" }}>
       <SettingsPanel />
 
       {/* Chat messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center opacity-60">
-            <Bot size={36} className="text-[--gen-primary] mb-3" />
-            <h3 className="text-sm font-medium text-[--gen-foreground] mb-1">
+            <Bot size={36} style={{ color: "var(--gen-primary)" }} className="mb-3" />
+            <h3 className="text-sm font-medium mb-1" style={{ color: "var(--gen-foreground)" }}>
               GenView AI
             </h3>
-            <p className="text-xs text-[--gen-muted-fg] max-w-[260px]">
+            <p className="text-xs max-w-[260px]" style={{ color: "var(--gen-muted-fg)" }}>
               Describe the dashboard, admin panel, or architecture diagram you
               want to build.
             </p>
@@ -147,16 +140,20 @@ export function ChatPanel() {
               }`}
             >
               {msg.role === "assistant" && (
-                <div className="w-7 h-7 rounded-full bg-[--gen-primary] flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                  style={{ background: "var(--gen-primary)" }}
+                >
                   <Bot size={14} className="text-white" />
                 </div>
               )}
               <div
-                className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed"
+                style={
                   msg.role === "user"
-                    ? "bg-[--gen-primary] text-white"
-                    : "bg-[--gen-muted] text-[--gen-foreground]"
-                }`}
+                    ? { background: "var(--gen-primary)", color: "#ffffff" }
+                    : { background: "var(--gen-muted)", color: "var(--gen-foreground)" }
+                }
               >
                 {parsed.text && (
                   <div className="whitespace-pre-wrap">{parsed.text}</div>
@@ -176,8 +173,11 @@ export function ChatPanel() {
                 )}
               </div>
               {msg.role === "user" && (
-                <div className="w-7 h-7 rounded-full bg-[--gen-muted] flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <User size={14} className="text-[--gen-foreground]" />
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                  style={{ background: "var(--gen-muted)" }}
+                >
+                  <User size={14} style={{ color: "var(--gen-foreground)" }} />
                 </div>
               )}
             </div>
@@ -185,12 +185,13 @@ export function ChatPanel() {
         })}
 
         {isStreaming && (
-          <div className="flex items-center gap-2 text-[--gen-muted-fg]">
+          <div className="flex items-center gap-2" style={{ color: "var(--gen-muted-fg)" }}>
             <Loader2 size={14} className="animate-spin" />
             <span className="text-xs">Generating...</span>
             <button
               onClick={stop}
-              className="text-xs underline hover:text-[--gen-foreground]"
+              className="text-xs underline"
+              style={{ color: "var(--gen-muted-fg)" }}
             >
               Stop
             </button>
@@ -201,7 +202,7 @@ export function ChatPanel() {
       </div>
 
       {/* Input area */}
-      <div className="border-t border-[--gen-border] p-3 flex-shrink-0">
+      <div className="p-3 flex-shrink-0" style={{ borderTop: "1px solid var(--gen-border)" }}>
         <form onSubmit={onSubmit} className="flex gap-2">
           <Textarea
             value={inputText}
