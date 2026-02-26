@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+:root {
+  /* GenView default theme tokens (Modern B2B) */
+  --gen-primary: #2563eb;
+  --gen-primary-fg: #ffffff;
+  --gen-background: #f8fafc;
+  --gen-foreground: #0f172a;
+  --gen-secondary: #f1f5f9;
+  --gen-secondary-fg: #334155;
+  --gen-muted: #f1f5f9;
+  --gen-muted-fg: #64748b;
+  --gen-accent: #3b82f6;
+  --gen-accent-fg: #ffffff;
+  --gen-card: #ffffff;
+  --gen-card-fg: #0f172a;
+  --gen-border: #e2e8f0;
+  --gen-sidebar-bg: #1e293b;
+  --gen-sidebar-fg: #e2e8f0;
+}
+
+@theme inline {
+  --color-background: var(--gen-background);
+  --color-foreground: var(--gen-foreground);
+}
+
+body {
+  background: var(--gen-background);
+  color: var(--gen-foreground);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--gen-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gen-muted-fg);
+}
+
+/* Theme overrides - applied via data attribute */
+[data-theme="dark-dashboard"] {
+  --gen-primary: #8b5cf6;
+  --gen-primary-fg: #ffffff;
+  --gen-background: #0a0a0f;
+  --gen-foreground: #e2e8f0;
+  --gen-secondary: #1e1e2e;
+  --gen-secondary-fg: #a5b4fc;
+  --gen-muted: #1a1a2e;
+  --gen-muted-fg: #94a3b8;
+  --gen-accent: #6366f1;
+  --gen-accent-fg: #ffffff;
+  --gen-card: #12121a;
+  --gen-card-fg: #e2e8f0;
+  --gen-border: #2a2a3e;
+  --gen-sidebar-bg: #0d0d14;
+  --gen-sidebar-fg: #c7d2fe;
+}
+
+[data-theme="steel-metallurgy"] {
+  --gen-primary: #ef4444;
+  --gen-primary-fg: #ffffff;
+  --gen-background: #1c1c1e;
+  --gen-foreground: #e5e5e5;
+  --gen-secondary: #292929;
+  --gen-secondary-fg: #d4d4d4;
+  --gen-muted: #2a2a2c;
+  --gen-muted-fg: #a3a3a3;
+  --gen-accent: #f97316;
+  --gen-accent-fg: #ffffff;
+  --gen-card: #232325;
+  --gen-card-fg: #e5e5e5;
+  --gen-border: #3a3a3c;
+  --gen-sidebar-bg: #141415;
+  --gen-sidebar-fg: #d4d4d4;
+}
+
+[data-theme="wind-energy"] {
+  --gen-primary: #10b981;
+  --gen-primary-fg: #ffffff;
+  --gen-background: #f0fdf4;
+  --gen-foreground: #052e16;
+  --gen-secondary: #ecfdf5;
+  --gen-secondary-fg: #065f46;
+  --gen-muted: #f0fdf4;
+  --gen-muted-fg: #6b7280;
+  --gen-accent: #06b6d4;
+  --gen-accent-fg: #ffffff;
+  --gen-card: #ffffff;
+  --gen-card-fg: #052e16;
+  --gen-border: #d1fae5;
+  --gen-sidebar-bg: #064e3b;
+  --gen-sidebar-fg: #d1fae5;
+}
