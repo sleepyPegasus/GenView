@@ -21,7 +21,9 @@ export function ChatPanel() {
     logoUrl,
     navLayout,
     theme,
+    model,
     currentCode,
+    conversationId,
     setCurrentCode,
     setRenderMode,
   } = useAppStore();
@@ -30,8 +32,8 @@ export function ChatPanel() {
   const [inputText, setInputText] = useState("");
 
   // We use a ref to always pass the latest store values to the transport body
-  const storeRef = useRef({ appName, logoUrl, navLayout, theme, currentCode });
-  storeRef.current = { appName, logoUrl, navLayout, theme, currentCode };
+  const storeRef = useRef({ appName, logoUrl, navLayout, theme, model, currentCode, conversationId });
+  storeRef.current = { appName, logoUrl, navLayout, theme, model, currentCode, conversationId };
 
   const transport = useMemo(
     () =>
@@ -42,7 +44,9 @@ export function ChatPanel() {
           logoUrl: storeRef.current.logoUrl,
           navLayout: storeRef.current.navLayout,
           theme: storeRef.current.theme,
+          model: storeRef.current.model,
           currentCode: storeRef.current.currentCode,
+          conversationId: storeRef.current.conversationId,
         }),
       }),
     []

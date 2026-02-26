@@ -1,7 +1,11 @@
-import { anthropic } from "@ai-sdk/anthropic";
 import { streamText, UIMessage, convertToModelMessages } from "ai";
+import { openrouter } from "@/lib/ai/provider";
+import { createMessage } from "@/lib/db/messages";
+import { parseResponse } from "@/lib/code-parser";
 
 export const maxDuration = 60;
+
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4-20250514";
 
 function buildSystemPrompt(opts: {
   appName: string;
@@ -37,7 +41,15 @@ ${opts.currentCode}
 }
 
 export async function POST(req: Request) {
-  const { messages, appName, navLayout, theme, currentCode } = await req.json();
+  const {
+    messages,
+    appName,
+    navLayout,
+    theme,
+    currentCode,
+    model,
+    conversationId,
+  } = await req.json();
 
   const systemPrompt = buildSystemPrompt({
     appName: appName || "GenView Dashboard",
@@ -46,12 +58,48 @@ export async function POST(req: Request) {
     currentCode: currentCode || "",
   });
 
-  const modelMessages = await convertToModelMessages(messages as UIMessage[]);
+  const modelMessages = await convertToModelMessages(
+    messages as UIMessage[]
+  );
+
+  // Persist user message to DB if conversationId is provided
+  if (conversationId) {
+    const lastUserMsg = messages[messages.length - 1];
+    if (lastUserMsg?.role === "user") {
+      const userText = lastUserMsg.parts
+        ?.filter((p: { type: string }) => p.type === "text")
+        .map((p: { text: string }) => p.text)
+        .join("") ?? "";
+      await createMessage({
+        conversationId,
+        role: "user",
+        content: userText,
+      });
+    }
+  }
+
+  const selectedModel = model || DEFAULT_MODEL;
 
   const result = streamText({
-    model: anthropic("claude-sonnet-4-20250514"),
+    model: openrouter(selectedModel),
     system: systemPrompt,
     messages: modelMessages,
+    onFinish: async ({ text }) => {
+      // Persist assistant message to DB
+      if (conversationId && text) {
+        const parsed = parseResponse(text);
+        const lastBlock = parsed.codeBlocks.length > 0
+          ? parsed.codeBlocks[parsed.codeBlocks.length - 1]
+          : null;
+        await createMessage({
+          conversationId,
+          role: "assistant",
+          content: text,
+          codeBlock: lastBlock?.code,
+          codeLanguage: lastBlock?.language,
+        });
+      }
+    },
   });
 
   return result.toUIMessageStreamResponse();
