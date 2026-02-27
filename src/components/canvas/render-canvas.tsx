@@ -86,7 +86,7 @@ export function RenderCanvas() {
             </div>
           </div>
         ) : renderMode === "sandpack" ? (
-          <SandpackRenderer code={currentCode} showCode={showCode} />
+          <SandpackRenderer showCode={showCode} />
         ) : renderMode === "mermaid" ? (
           <MermaidPreview code={currentCode} showCode={showCode} />
         ) : null}
