@@ -122,7 +122,7 @@ export function RenderCanvas() {
       </div>
 
       {/* Canvas area */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden min-h-0">
         {!currentCode || !renderMode ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">
