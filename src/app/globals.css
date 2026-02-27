@@ -31,6 +31,12 @@ body {
   overflow: hidden;
 }
 
+/* Sandpack wrapper must fill available height so the code editor / preview
+   iframe get a constrained height and can scroll / render properly. */
+.sp-wrapper {
+  height: 100% !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
