@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useMemo } from "react";
+import React, { useEffect, useRef, useMemo } from "react";
 import {
   SandpackProvider,
   SandpackPreview,
@@ -10,32 +10,31 @@ import {
 import { useAppStore } from "@/store/app-store";
 import { generateSandpackFiles } from "@/lib/sandpack-files";
 
-interface SandpackRendererProps {
-  code: string;
-  showCode: boolean;
-}
-
 /**
- * Inner component that dynamically updates the DashboardContent.tsx file
- * using the Sandpack API, without remounting the entire provider.
+ * Inner component that subscribes to currentCode from the Zustand store
+ * and dynamically updates the DashboardContent.tsx file via Sandpack API.
+ *
+ * This is deliberately isolated from SandpackProvider's render cycle —
+ * when currentCode changes, only this component re-renders (via store
+ * subscription), NOT the SandpackProvider itself. This prevents the
+ * Provider from resetting its internal file state.
  */
-function SandpackFileUpdater({ code }: { code: string }) {
+function SandpackFileUpdater() {
   const { sandpack } = useSandpack();
+  const currentCode = useAppStore((s) => s.currentCode);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCodeRef = useRef<string>("");
 
   useEffect(() => {
-    // Skip if code hasn't actually changed
-    if (code === lastCodeRef.current) return;
+    if (!currentCode || currentCode === lastCodeRef.current) return;
 
-    // Debounce updates during streaming (300ms) to avoid overwhelming Sandpack
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
 
     debounceRef.current = setTimeout(() => {
-      lastCodeRef.current = code;
-      sandpack.updateFile("/DashboardContent.tsx", code, true);
+      lastCodeRef.current = currentCode;
+      sandpack.updateFile("/DashboardContent.tsx", currentCode, true);
     }, 300);
 
     return () => {
@@ -43,15 +42,28 @@ function SandpackFileUpdater({ code }: { code: string }) {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [code, sandpack]);
+  }, [currentCode, sandpack]);
 
   return null;
 }
 
-export function SandpackRenderer({ code, showCode }: SandpackRendererProps) {
+interface SandpackRendererProps {
+  showCode: boolean;
+}
+
+/**
+ * Memoized Sandpack wrapper. Only re-renders when `showCode` changes
+ * (Preview ↔ Code tab switch). Code updates go through SandpackFileUpdater
+ * which calls sandpack.updateFile() without causing the Provider to remount.
+ */
+export const SandpackRenderer = React.memo(function SandpackRenderer({
+  showCode,
+}: SandpackRendererProps) {
   const { appName, logoUrl, navLayout, theme } = useAppStore();
 
-  // Generate initial files once — subsequent code updates go through updateFile()
+  // Capture current code at mount time for initial files (non-reactive)
+  const initialCodeRef = useRef(useAppStore.getState().currentCode);
+
   const initialFiles = useMemo(
     () =>
       generateSandpackFiles({
@@ -59,10 +71,8 @@ export function SandpackRenderer({ code, showCode }: SandpackRendererProps) {
         logoUrl,
         navLayout,
         theme,
-        contentCode: code,
+        contentCode: initialCodeRef.current,
       }),
-    // Only regenerate when shell config changes, NOT when code changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [appName, logoUrl, navLayout, theme]
   );
 
@@ -82,7 +92,7 @@ export function SandpackRenderer({ code, showCode }: SandpackRendererProps) {
         activeFile: "/DashboardContent.tsx",
       }}
     >
-      <SandpackFileUpdater code={code} />
+      <SandpackFileUpdater />
       <div className="h-full flex flex-col">
         {showCode ? (
           <SandpackCodeEditor
@@ -101,4 +111,4 @@ export function SandpackRenderer({ code, showCode }: SandpackRendererProps) {
       </div>
     </SandpackProvider>
   );
-}
+});
