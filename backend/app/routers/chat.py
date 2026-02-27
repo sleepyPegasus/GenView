@@ -145,6 +145,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                         "model": model,
                         "messages": openai_messages,
                         "stream": True,
+                        "include_reasoning": True,
                     },
                 ) as resp:
                     if resp.status_code != 200:
@@ -170,8 +171,17 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                             chunk = json.loads(data)
                             delta = chunk["choices"][0].get("delta", {})
 
-                            # Handle thinking/reasoning tokens (some models support this)
-                            reasoning = delta.get("reasoning_content") or delta.get("reasoning", "")
+                            # Handle thinking/reasoning tokens from various models:
+                            # - DeepSeek: "reasoning_content"
+                            # - OpenAI o-series: "reasoning"
+                            # - Gemini thinking: "thought" or "thinking"
+                            reasoning = (
+                                delta.get("reasoning_content")
+                                or delta.get("reasoning")
+                                or delta.get("thought")
+                                or delta.get("thinking")
+                                or ""
+                            )
                             if reasoning:
                                 if not thinking_sent:
                                     yield _sse_event("step", {"label": "AI is reasoning...", "status": "active"})
@@ -242,4 +252,11 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
             await db.commit()
             logger.info(f"[Chat] Message saved to DB | conversation_id={req.conversation_id}")
 
-    return StreamingResponse(generate(), media_type="text/event-stream; charset=utf-8")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # Disable nginx/proxy buffering
+        },
+    )

@@ -40,6 +40,19 @@ interface StepInfo {
   timestamp: number;
 }
 
+/**
+ * Get the chat API URL. Uses NEXT_PUBLIC_BACKEND_URL directly to bypass
+ * the Next.js rewrite proxy, which buffers SSE streams and prevents
+ * real-time event delivery.
+ */
+function getChatUrl(): string {
+  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_BACKEND_URL) {
+    return `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat`;
+  }
+  // Fallback: same-origin through Next.js proxy (may buffer SSE)
+  return "/api/chat";
+}
+
 export function ChatPanel() {
   const {
     appName,
@@ -87,6 +100,64 @@ export function ChatPanel() {
     }
   }, [messages, isStreaming, setCurrentCode, setRenderMode]);
 
+  const handleSSEEvent = useCallback(
+    (assistantId: string, eventType: string, data: Record<string, unknown>) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== assistantId) return m;
+          const updated = { ...m };
+          switch (eventType) {
+            case "content":
+              updated.content = m.content + (data.text as string);
+              break;
+            case "thinking":
+              updated.thinking = (m.thinking || "") + (data.text as string);
+              break;
+            case "step": {
+              const steps = [...(m.steps || [])];
+              // Mark previous active/loading steps as done when new step arrives
+              if (steps.length > 0 && data.status !== "done") {
+                const last = steps[steps.length - 1];
+                if (last.status === "loading" || last.status === "active") {
+                  steps[steps.length - 1] = { ...last, status: "done" };
+                }
+              }
+              if (data.status === "done" && steps.length > 0) {
+                const idx = steps.findIndex((s) => s.label === data.label);
+                if (idx >= 0) {
+                  steps[idx] = { ...steps[idx], status: "done" };
+                } else {
+                  steps.push({ label: data.label as string, status: "done", timestamp: Date.now() });
+                }
+              } else {
+                steps.push({
+                  label: data.label as string,
+                  status: data.status as StepInfo["status"],
+                  timestamp: Date.now(),
+                });
+              }
+              updated.steps = steps;
+              break;
+            }
+            case "progress":
+              updated.progress = data.percent as number;
+              break;
+            case "done":
+              updated.progress = 100;
+              updated.tokenCount = data.token_count as number;
+              updated.elapsed = data.elapsed as number;
+              break;
+            case "error":
+              updated.content = m.content + `\n\n${data.message}`;
+              break;
+          }
+          return updated;
+        })
+      );
+    },
+    []
+  );
+
   const sendMessage = useCallback(
     async (text: string) => {
       const userMsg: ChatMessage = {
@@ -118,7 +189,10 @@ export function ChatPanel() {
           parts: [{ type: "text", text: m.content }],
         }));
 
-        const res = await fetch("/api/chat", {
+        // Call backend directly (bypass Next.js proxy which buffers SSE)
+        const chatUrl = getChatUrl();
+
+        const res = await fetch(chatUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -152,6 +226,9 @@ export function ChatPanel() {
 
         const decoder = new TextDecoder();
         let buffer = "";
+        // eventType must persist across read() chunks — an "event:" line
+        // can arrive in one chunk while its "data:" line arrives in the next.
+        let eventType = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -161,67 +238,20 @@ export function ChatPanel() {
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
 
-          let eventType = "";
           for (const line of lines) {
             if (line.startsWith("event: ")) {
               eventType = line.slice(7).trim();
             } else if (line.startsWith("data: ") && eventType) {
               try {
                 const data = JSON.parse(line.slice(6));
-                setMessages((prev) =>
-                  prev.map((m) => {
-                    if (m.id !== assistantId) return m;
-                    const updated = { ...m };
-                    switch (eventType) {
-                      case "content":
-                        updated.content = m.content + data.text;
-                        break;
-                      case "thinking":
-                        updated.thinking = (m.thinking || "") + data.text;
-                        break;
-                      case "step": {
-                        const steps = [...(m.steps || [])];
-                        // Mark previous active/loading steps as done when new step arrives
-                        if (steps.length > 0 && data.status !== "done") {
-                          const last = steps[steps.length - 1];
-                          if (last.status === "loading" || last.status === "active") {
-                            steps[steps.length - 1] = { ...last, status: "done" };
-                          }
-                        }
-                        if (data.status === "done" && steps.length > 0) {
-                          const idx = steps.findIndex((s) => s.label === data.label);
-                          if (idx >= 0) {
-                            steps[idx] = { ...steps[idx], status: "done" };
-                          } else {
-                            steps.push({ label: data.label, status: "done", timestamp: Date.now() });
-                          }
-                        } else {
-                          steps.push({ label: data.label, status: data.status, timestamp: Date.now() });
-                        }
-                        updated.steps = steps;
-                        break;
-                      }
-                      case "progress":
-                        updated.progress = data.percent;
-                        break;
-                      case "done":
-                        updated.progress = 100;
-                        updated.tokenCount = data.token_count;
-                        updated.elapsed = data.elapsed;
-                        break;
-                      case "error":
-                        updated.content = m.content + `\n\n${data.message}`;
-                        break;
-                    }
-                    return updated;
-                  })
-                );
+                handleSSEEvent(assistantId, eventType, data);
               } catch {
                 // ignore parse errors
               }
               eventType = "";
-            } else if (line === "") {
-              eventType = "";
+            } else if (line.trim() === "") {
+              // Empty line = end of SSE event; do NOT reset eventType here
+              // because we already reset it after processing the data line.
             }
           }
         }
