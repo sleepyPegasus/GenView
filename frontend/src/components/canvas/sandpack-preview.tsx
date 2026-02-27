@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useMemo } from "react";
 import {
   SandpackProvider,
+  SandpackLayout,
   SandpackPreview,
   SandpackCodeEditor,
   useSandpack,
@@ -21,13 +22,24 @@ import { generateSandpackFiles } from "@/lib/sandpack-files";
 function SandpackFileUpdater() {
   const { sandpack } = useSandpack();
   const currentCode = useAppStore((s) => s.currentCode);
+  const extraFiles = useAppStore((s) => s.extraFiles);
   const lastCodeRef = useRef("");
+  const lastExtraRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (!currentCode || currentCode === lastCodeRef.current) return;
     lastCodeRef.current = currentCode;
     sandpack.updateFile("/DashboardContent.tsx", currentCode, true);
   }, [currentCode, sandpack]);
+
+  useEffect(() => {
+    if (JSON.stringify(extraFiles) === JSON.stringify(lastExtraRef.current)) return;
+    lastExtraRef.current = extraFiles;
+    for (const [path, code] of Object.entries(extraFiles)) {
+      const p = path.startsWith("/") ? path : `/${path}`;
+      sandpack.updateFile(p, code, true);
+    }
+  }, [extraFiles, sandpack]);
 
   return null;
 }
@@ -44,10 +56,11 @@ interface SandpackRendererProps {
 export const SandpackRenderer = React.memo(function SandpackRenderer({
   showCode,
 }: SandpackRendererProps) {
-  const { appName, logoUrl, navLayout, theme } = useAppStore();
+  const { appName, logoUrl, navLayout, theme, customTheme, extraFiles } = useAppStore();
 
   // Capture current code at mount time (non-reactive — no re-render on code change)
   const initialCodeRef = useRef(useAppStore.getState().currentCode);
+  const initialExtraRef = useRef(useAppStore.getState().extraFiles);
 
   const initialFiles = useMemo(
     () =>
@@ -56,9 +69,11 @@ export const SandpackRenderer = React.memo(function SandpackRenderer({
         logoUrl,
         navLayout,
         theme,
+        customTheme,
         contentCode: initialCodeRef.current,
+        extraFiles: initialExtraRef.current,
       }),
-    [appName, logoUrl, navLayout, theme]
+    [appName, logoUrl, navLayout, theme, customTheme]
   );
 
   return (
@@ -68,6 +83,7 @@ export const SandpackRenderer = React.memo(function SandpackRenderer({
       customSetup={{
         dependencies: {
           recharts: "^2.12.0",
+          echarts: "^5.5.0",
           "lucide-react": "^0.400.0",
         },
       }}
@@ -75,24 +91,36 @@ export const SandpackRenderer = React.memo(function SandpackRenderer({
         externalResources: ["https://cdn.tailwindcss.com"],
         visibleFiles: ["/DashboardContent.tsx"],
         activeFile: "/DashboardContent.tsx",
+        classes: {
+          "sp-layout": "gen-sandpack-layout",
+          "sp-editor": "gen-sandpack-editor",
+        },
       }}
     >
       <SandpackFileUpdater />
       <div className="h-full flex flex-col min-h-0">
-        {showCode ? (
-          <SandpackCodeEditor
-            style={{ flex: 1, minHeight: 0 }}
-            showLineNumbers
-            showTabs
-            readOnly
-          />
-        ) : (
-          <SandpackPreview
-            style={{ flex: 1, minHeight: 0 }}
-            showNavigator={false}
-            showRefreshButton
-          />
-        )}
+        <SandpackLayout>
+          {/* 始终挂载两者，用 CSS 控制显示，确保 bundler 持续运行、Preview 不空白 */}
+          <div
+            className={showCode ? "h-full min-h-0 flex-1 flex flex-col" : "hidden"}
+          >
+            <SandpackCodeEditor
+              style={{ flex: 1, minHeight: 0, height: "100%" }}
+              showLineNumbers
+              showTabs
+              readOnly
+            />
+          </div>
+          <div
+            className={!showCode ? "h-full min-h-0 flex-1 flex flex-col" : "hidden"}
+          >
+            <SandpackPreview
+              style={{ flex: 1, minHeight: 0 }}
+              showNavigator={false}
+              showRefreshButton
+            />
+          </div>
+        </SandpackLayout>
       </div>
     </SandpackProvider>
   );

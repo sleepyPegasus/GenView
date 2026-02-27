@@ -6,7 +6,9 @@ import {
   parseResponse,
   hasCompleteCodeBlock,
   extractLatestCodeBlock,
+  extractAllTsxBlocks,
 } from "@/lib/code-parser";
+import { listMessages, ensureProjectAndConversation, updateConversation } from "@/lib/api";
 import { SettingsPanel } from "./settings-panel";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -21,7 +23,10 @@ import {
   CheckCircle2,
   Circle,
   Zap,
+  Copy,
 } from "lucide-react";
+import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
 
 interface ChatMessage {
   id: string;
@@ -61,8 +66,13 @@ export function ChatPanel() {
     theme,
     model,
     currentCode,
+    projectId,
     conversationId,
+    setProjectId,
+    setConversationId,
+    invalidateConversationList,
     setCurrentCode,
+    setExtraFiles,
     setRenderMode,
   } = useAppStore();
 
@@ -71,10 +81,36 @@ export function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const skipLoadForConvIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Load messages when conversation changes (e.g. user switched in sidebar)
+  useEffect(() => {
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
+    if (skipLoadForConvIdRef.current === conversationId) {
+      skipLoadForConvIdRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    const cid = conversationId;
+    listMessages(cid).then((msgs) => {
+      if (cancelled) return;
+      if (useAppStore.getState().conversationId !== cid) return;
+      const chatMsgs: ChatMessage[] = msgs.map((m) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+      setMessages(chatMsgs);
+    });
+    return () => { cancelled = true; };
+  }, [conversationId]);
 
   // During streaming, attempt to parse and preview code
   useEffect(() => {
@@ -86,7 +122,11 @@ export function ChatPanel() {
 
     const tsxCode = extractLatestCodeBlock(content, "tsx");
     if (tsxCode && tsxCode.length > 50) {
-      setCurrentCode(tsxCode);
+      const allFiles = extractAllTsxBlocks(content);
+      const mainCode = allFiles["/DashboardContent.tsx"] ?? tsxCode;
+      setCurrentCode(mainCode);
+      const { "/DashboardContent.tsx": _, ...rest } = allFiles;
+      setExtraFiles(rest);
       setRenderMode("sandpack");
       return;
     }
@@ -95,10 +135,11 @@ export function ChatPanel() {
       const mermaidCode = extractLatestCodeBlock(content, "mermaid");
       if (mermaidCode) {
         setCurrentCode(mermaidCode);
+        setExtraFiles({});
         setRenderMode("mermaid");
       }
     }
-  }, [messages, isStreaming, setCurrentCode, setRenderMode]);
+  }, [messages, isStreaming, setCurrentCode, setExtraFiles, setRenderMode]);
 
   const handleSSEEvent = useCallback(
     (assistantId: string, eventType: string, data: Record<string, unknown>) => {
@@ -146,9 +187,18 @@ export function ChatPanel() {
               updated.progress = 100;
               updated.tokenCount = data.token_count as number;
               updated.elapsed = data.elapsed as number;
+              // 流结束时，将所有处于 active/loading 的步骤标记为 done，避免 "Generating code..." 一直转圈
+              if (updated.steps?.length) {
+                updated.steps = updated.steps.map((s) =>
+                  s.status === "active" || s.status === "loading"
+                    ? { ...s, status: "done" as const }
+                    : s
+                );
+              }
               break;
             case "error":
               updated.content = m.content + `\n\n${data.message}`;
+              toast.error("AI error", { description: String(data.message) });
               break;
           }
           return updated;
@@ -160,6 +210,37 @@ export function ChatPanel() {
 
   const sendMessage = useCallback(
     async (text: string) => {
+      let cid = conversationId;
+      if (!cid || !projectId) {
+        try {
+          const { projectId: pid, conversationId: convId } = await ensureProjectAndConversation({
+            appName,
+            logoUrl,
+            navLayout,
+            theme,
+            existingProjectId: projectId,
+            existingConversationId: conversationId,
+          });
+          setProjectId(pid);
+          setConversationId(convId);
+          cid = convId;
+          skipLoadForConvIdRef.current = convId;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          toast.error("Failed to create session", { description: msg });
+          setMessages((prev) => [
+            ...prev,
+            { id: `user-${Date.now()}`, role: "user", content: text },
+            {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: `Failed to create session: ${msg}`,
+            },
+          ]);
+          return;
+        }
+      }
+
       const userMsg: ChatMessage = {
         id: `user-${Date.now()}`,
         role: "user",
@@ -179,6 +260,12 @@ export function ChatPanel() {
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
       useAppStore.getState().setIsStreaming(true);
+
+      // First message: use it as conversation title
+      if (messages.length === 0 && cid) {
+        const title = text.slice(0, 50).trim() || "New Conversation";
+        updateConversation(cid, { title }).catch(() => {}).finally(() => invalidateConversationList());
+      }
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -204,13 +291,23 @@ export function ChatPanel() {
             theme,
             model,
             current_code: currentCode,
-            conversation_id: conversationId,
+            conversation_id: cid,
           }),
           signal: controller.signal,
         });
 
         if (!res.ok) {
           const errText = await res.text();
+          const isRetriable = res.status >= 500 || res.status === 408;
+          toast.error(`Request failed (${res.status})`, {
+            description: errText.slice(0, 200),
+            action: isRetriable
+              ? {
+                  label: "Retry",
+                  onClick: () => sendMessage(text),
+                }
+              : undefined,
+          });
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
@@ -264,7 +361,16 @@ export function ChatPanel() {
             const parsed = parseResponse(last.content);
             if (parsed.codeBlocks.length > 0) {
               const lastBlock = parsed.codeBlocks[parsed.codeBlocks.length - 1];
-              setCurrentCode(lastBlock.code);
+              if (lastBlock.language === "tsx") {
+                const allFiles = extractAllTsxBlocks(last.content);
+                const mainCode = allFiles["/DashboardContent.tsx"] ?? lastBlock.code;
+                setCurrentCode(mainCode);
+                const { "/DashboardContent.tsx": _d, ...rest } = allFiles;
+                setExtraFiles(rest);
+              } else {
+                setCurrentCode(lastBlock.code);
+                setExtraFiles({});
+              }
               setRenderMode(lastBlock.language === "tsx" ? "sandpack" : "mermaid");
             }
           }
@@ -274,10 +380,18 @@ export function ChatPanel() {
         if (err instanceof Error && err.name === "AbortError") {
           // User stopped generation
         } else {
+          const msg = err instanceof Error ? err.message : "Connection error";
+          toast.error("Connection failed", {
+            description: msg,
+            action: {
+              label: "Retry",
+              onClick: () => sendMessage(text),
+            },
+          });
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, content: m.content + "\n\nConnection error" }
+                ? { ...m, content: m.content + `\n\nConnection error: ${msg}` }
                 : m
             )
           );
@@ -288,7 +402,7 @@ export function ChatPanel() {
         abortRef.current = null;
       }
     },
-    [messages, appName, logoUrl, navLayout, theme, model, currentCode, conversationId, setCurrentCode, setRenderMode]
+    [messages, appName, logoUrl, navLayout, theme, model, currentCode, projectId, conversationId, setProjectId, setConversationId, setCurrentCode, setExtraFiles, setRenderMode, invalidateConversationList]
   );
 
   const stopGeneration = useCallback(() => {
@@ -311,7 +425,7 @@ export function ChatPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: "var(--gen-card)" }}>
+    <div className="h-full flex flex-col min-w-0" style={{ background: "var(--gen-card)" }}>
       <SettingsPanel />
 
       {/* Chat messages */}
@@ -383,15 +497,42 @@ export function ChatPanel() {
                     style={{ background: "var(--gen-muted)", color: "var(--gen-foreground)" }}
                   >
                     {parsed.text && (
-                      <div className="whitespace-pre-wrap">{parsed.text}</div>
+                      <div
+                        className="markdown-content [&_p]:mb-2 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_strong]:font-semibold [&_a]:underline [&_a]:text-[var(--gen-primary)] [&_pre]:whitespace-pre-wrap [&_pre]:text-xs [&_pre]:p-2 [&_pre]:rounded [&_pre]:bg-black/10 [&_code]:text-xs [&_code]:bg-black/10 [&_code]:px-1 [&_code]:rounded"
+                        style={{ color: "var(--gen-foreground)" }}
+                      >
+                        <ReactMarkdown>{parsed.text}</ReactMarkdown>
+                      </div>
                     )}
                     {parsed.codeBlocks.length > 0 && (
-                      <div className="mt-2 text-xs opacity-70 italic">
+                      <div className="mt-2 space-y-2">
                         {parsed.codeBlocks.map((b, i) => (
-                          <span key={i}>
-                            [{b.language.toUpperCase()} code rendered on canvas]
-                            {i < parsed.codeBlocks.length - 1 ? " " : ""}
-                          </span>
+                          <div
+                            key={i}
+                            className="relative group rounded-lg overflow-hidden"
+                            style={{ background: "var(--gen-background)" }}
+                          >
+                            <div className="flex items-center justify-between px-2 py-1 text-xs opacity-70">
+                              <span>{b.language.toUpperCase()}</span>
+                              <button
+                                onClick={async () => {
+                                  await navigator.clipboard.writeText(b.code);
+                                  toast.success("Code copied");
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
+                                style={{ color: "var(--gen-muted-fg)" }}
+                                title="Copy code"
+                              >
+                                <Copy size={12} />
+                              </button>
+                            </div>
+                            <pre className="p-2 text-xs overflow-x-auto max-h-32 overflow-y-auto">
+                              <code>{b.code.slice(0, 500)}{b.code.length > 500 ? "..." : ""}</code>
+                            </pre>
+                            <span className="text-[10px] opacity-60 italic px-2 pb-1 block">
+                              [Rendered on canvas]
+                            </span>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -454,6 +595,7 @@ export function ChatPanel() {
       <div className="p-3 flex-shrink-0" style={{ borderTop: "1px solid var(--gen-border)" }}>
         <form onSubmit={onSubmit} className="flex gap-2">
           <Textarea
+            data-testid="chat-input"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -462,6 +604,7 @@ export function ChatPanel() {
             rows={1}
           />
           <Button
+            data-testid="chat-send"
             type="submit"
             size="icon"
             disabled={isStreaming || !inputText.trim()}

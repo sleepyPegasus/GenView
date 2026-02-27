@@ -50,36 +50,38 @@ GenView/
 │   │       └── models_router.py# GET /api/models (OpenRouter proxy)
 │   ├── requirements.txt
 │   └── .env.example
-├── src/                        # Next.js frontend
-│   ├── app/
-│   │   ├── page.tsx            # Main split-view layout
-│   │   ├── layout.tsx          # Root layout
-│   │   └── globals.css         # Theme CSS variables
-│   ├── components/
-│   │   ├── chat/
-│   │   │   ├── chat-panel.tsx  # Chat UI with AI SDK useChat
-│   │   │   └── settings-panel.tsx # App name, theme, nav layout config
-│   │   ├── canvas/
-│   │   │   ├── render-canvas.tsx    # Preview/Code tab switcher
-│   │   │   ├── sandpack-preview.tsx # Sandpack live preview
-│   │   │   └── mermaid-preview.tsx  # Mermaid diagram renderer
-│   │   └── ui/                 # Reusable UI primitives
-│   │       ├── button.tsx
-│   │       ├── input.tsx
-│   │       ├── select.tsx
-│   │       ├── textarea.tsx
-│   │       └── model-selector.tsx  # Searchable OpenRouter model picker
-│   ├── lib/
-│   │   ├── code-parser.ts     # Extract tsx/mermaid from LLM output
-│   │   ├── message-utils.ts   # UIMessage text extraction helper
-│   │   ├── sandpack-files.ts  # App Shell file generation
-│   │   ├── themes.ts          # Theme token definitions
-│   │   └── utils.ts           # cn() utility
-│   └── store/
-│       └── app-store.ts       # Zustand global state
-├── next.config.ts              # API rewrites to Python backend
-├── package.json
-└── .env.example
+├── frontend/                   # Next.js frontend
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── page.tsx        # Main split-view layout
+│   │   │   ├── layout.tsx      # Root layout
+│   │   │   └── globals.css     # Theme CSS variables
+│   │   ├── components/
+│   │   │   ├── chat/
+│   │   │   │   ├── chat-panel.tsx  # Chat UI with AI SDK useChat
+│   │   │   │   └── settings-panel.tsx # App name, theme, nav layout config
+│   │   │   ├── canvas/
+│   │   │   │   ├── render-canvas.tsx    # Preview/Code tab switcher
+│   │   │   │   ├── sandpack-preview.tsx # Sandpack live preview
+│   │   │   │   └── mermaid-preview.tsx  # Mermaid diagram renderer
+│   │   │   └── ui/             # Reusable UI primitives
+│   │   │       ├── button.tsx
+│   │   │       ├── input.tsx
+│   │   │       ├── select.tsx
+│   │   │       ├── textarea.tsx
+│   │   │       └── model-selector.tsx  # Searchable OpenRouter model picker
+│   │   ├── lib/
+│   │   │   ├── code-parser.ts     # Extract tsx/mermaid from LLM output
+│   │   │   ├── message-utils.ts   # UIMessage text extraction helper
+│   │   │   ├── sandpack-files.ts  # App Shell file generation
+│   │   │   ├── themes.ts          # Theme token definitions
+│   │   │   └── utils.ts           # cn() utility
+│   │   └── store/
+│   │       └── app-store.ts       # Zustand global state
+│   ├── next.config.ts
+│   ├── package.json
+│   └── .env.example
+└── package.json                 # Root scripts (dev, build, etc.)
 ```
 
 ## Getting Started
@@ -96,7 +98,7 @@ GenView/
 ```bash
 git clone <repo-url> GenView
 cd GenView
-npm install
+npm run install:frontend
 ```
 
 ### 2. Set Up Backend
@@ -117,9 +119,10 @@ OPENROUTER_API_KEY=your-openrouter-api-key-here
 CORS_ORIGINS=["http://localhost:3000"]
 ```
 
-**Frontend** (`.env`):
+**Frontend** (`frontend/.env`):
 ```env
 BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
 ```
 
 ### 4. Set Up Database

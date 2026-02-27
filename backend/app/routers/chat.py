@@ -27,8 +27,9 @@ SYSTEM_PROMPT_TEMPLATE = """你是一个资深的工业软件 UI/UX 架构师，
    - 务必使用内联样式 (inline styles) 配合 CSS 变量进行样式编写。
    - 使用以下 CSS 变量而非硬编码颜色: var(--primary), var(--primary-foreground), var(--background), var(--foreground), var(--secondary), var(--muted), var(--muted-foreground), var(--accent), var(--card), var(--card-foreground), var(--border)。
    - 组件必须使用 `export default function DashboardContent()` 格式导出。
+   - 多文件支持：若需拆分子组件或工具，可输出多个代码块，格式为 ```tsx:path/to/file.tsx，主入口仍为 ```tsx（即 DashboardContent.tsx）。
 3. **禁止输出** `<html>`、全屏的侧边栏或顶部导航代码，因为系统外层框架已存在。你只需输出主业务内容区 (Content Area) 的代码。
-4. 必须默认使用 `lucide-react` 作为图标库，`recharts` 作为图表库。
+4. 图表库：默认使用 `recharts`；若需要复杂图表（如 K 线、热力图、关系图、地图等），可使用 `echarts`（已预装）。`lucide-react` 作为图标库。
 5. 【重要】在多轮对话修改时，绝不允许截断代码或使用 "// ... existing code ..." 之类的省略写法。必须每次输出完整的组件代码！
 6. 请先用中文简要描述你的设计思路，然后输出代码。
 7. 所有生成的 UI 应该看起来专业、高保真、像真实的生产级工业软件。尽可能使用丰富的数据、统计卡片、图表和表格来填充页面。"""
@@ -125,6 +126,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     async def generate():
         full_text = ""
         in_code_block = False
+        last_active_step_label: str | None = None
         last_progress = 0
         start_time = time.time()
         token_count = 0
@@ -200,11 +202,13 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                             phase = _detect_phase(full_text, text)
                             if phase == "generating_code":
                                 in_code_block = True
-                                yield _sse_event("step", {"label": "Generating code...", "status": "active"})
+                                last_active_step_label = "Generating code..."
+                                yield _sse_event("step", {"label": last_active_step_label, "status": "active"})
                                 logger.info(f"[Chat] Code generation started | tokens_so_far={token_count}")
                             elif phase == "generating_diagram":
                                 in_code_block = True
-                                yield _sse_event("step", {"label": "Generating diagram...", "status": "active"})
+                                last_active_step_label = "Generating diagram..."
+                                yield _sse_event("step", {"label": last_active_step_label, "status": "active"})
                                 logger.info(f"[Chat] Diagram generation started | tokens_so_far={token_count}")
                             elif phase == "code_complete":
                                 in_code_block = False
@@ -234,6 +238,10 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
         elapsed = time.time() - start_time
         logger.info(f"[Chat] Stream complete | tokens={token_count} | elapsed={elapsed:.1f}s | chars={len(full_text)}")
+
+        # If stream ended while still in code block, mark the active step as done
+        if in_code_block and last_active_step_label:
+            yield _sse_event("step", {"label": last_active_step_label, "status": "done"})
 
         yield _sse_event("progress", {"percent": 100})
         yield _sse_event("step", {"label": "Generation complete", "status": "done"})
