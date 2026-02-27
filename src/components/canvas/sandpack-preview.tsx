@@ -78,17 +78,17 @@ export const SandpackRenderer = React.memo(function SandpackRenderer({
       }}
     >
       <SandpackFileUpdater />
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col min-h-0">
         {showCode ? (
           <SandpackCodeEditor
-            style={{ flex: 1 }}
+            style={{ flex: 1, minHeight: 0 }}
             showLineNumbers
             showTabs
             readOnly
           />
         ) : (
           <SandpackPreview
-            style={{ flex: 1 }}
+            style={{ flex: 1, minHeight: 0 }}
             showNavigator={false}
             showRefreshButton
           />
