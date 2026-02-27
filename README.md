@@ -1,36 +1,184 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GenView
+
+Enterprise AI application for generating industrial admin dashboards, data panels, and architecture diagrams via natural language. Similar in concept to v0.dev / Claude Artifacts, but tailored for ToB (Business-to-Business) management scenarios.
+
+## Features
+
+- **Natural Language to UI** - Describe your dashboard in plain language, get a live React component
+- **Split-View Interface** - 35% chat panel (left) + 65% render canvas (right)
+- **Live Preview** - Sandpack-powered in-browser React rendering with App Shell injection
+- **Architecture Diagrams** - Mermaid.js integration for generating flowcharts, sequence diagrams, etc.
+- **4 Industrial Themes** - Modern B2B, Dark Dashboard, Steel Metallurgy, Wind Energy
+- **Model-Agnostic LLM** - Searchable model selector with all OpenRouter models
+- **Multi-Turn Conversations** - Context-aware code iteration with conversation history
+- **Code View** - Syntax-highlighted source code alongside live preview
+
+## Tech Stack
+
+### Frontend
+- **Next.js 16** (App Router + Turbopack)
+- **React 19** + TypeScript
+- **Tailwind CSS v4**
+- **Vercel AI SDK v6** (`@ai-sdk/react` with `TextStreamChatTransport`)
+- **Zustand** - Global state management
+- **Sandpack** - In-browser React component preview
+- **Mermaid.js** - Architecture diagram rendering
+- **Recharts** - Charting library (available inside generated components)
+- **Lucide React** - Icon library
+
+### Backend
+- **Python 3.10+** with **FastAPI**
+- **SQLAlchemy 2.0** (async) + **asyncpg** for PostgreSQL
+- **httpx** + **httpx-sse** for OpenRouter streaming
+- **Pydantic v2** for request/response validation
+
+## Project Structure
+
+```
+GenView/
+├── backend/                    # Python FastAPI backend
+│   ├── app/
+│   │   ├── main.py             # FastAPI app, lifespan, CORS
+│   │   ├── config.py           # Pydantic Settings
+│   │   ├── database.py         # Async SQLAlchemy engine + sessions
+│   │   ├── models.py           # ORM models (Project, Conversation, Message)
+│   │   ├── schemas.py          # Pydantic request/response schemas
+│   │   └── routers/
+│   │       ├── chat.py         # POST /api/chat (streaming)
+│   │       ├── projects.py     # CRUD /api/projects
+│   │       ├── conversations.py# CRUD /api/conversations
+│   │       └── models_router.py# GET /api/models (OpenRouter proxy)
+│   ├── requirements.txt
+│   └── .env.example
+├── src/                        # Next.js frontend
+│   ├── app/
+│   │   ├── page.tsx            # Main split-view layout
+│   │   ├── layout.tsx          # Root layout
+│   │   └── globals.css         # Theme CSS variables
+│   ├── components/
+│   │   ├── chat/
+│   │   │   ├── chat-panel.tsx  # Chat UI with AI SDK useChat
+│   │   │   └── settings-panel.tsx # App name, theme, nav layout config
+│   │   ├── canvas/
+│   │   │   ├── render-canvas.tsx    # Preview/Code tab switcher
+│   │   │   ├── sandpack-preview.tsx # Sandpack live preview
+│   │   │   └── mermaid-preview.tsx  # Mermaid diagram renderer
+│   │   └── ui/                 # Reusable UI primitives
+│   │       ├── button.tsx
+│   │       ├── input.tsx
+│   │       ├── select.tsx
+│   │       ├── textarea.tsx
+│   │       └── model-selector.tsx  # Searchable OpenRouter model picker
+│   ├── lib/
+│   │   ├── code-parser.ts     # Extract tsx/mermaid from LLM output
+│   │   ├── message-utils.ts   # UIMessage text extraction helper
+│   │   ├── sandpack-files.ts  # App Shell file generation
+│   │   ├── themes.ts          # Theme token definitions
+│   │   └── utils.ts           # cn() utility
+│   └── store/
+│       └── app-store.ts       # Zustand global state
+├── next.config.ts              # API rewrites to Python backend
+├── package.json
+└── .env.example
+```
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- **Node.js** >= 18
+- **Python** >= 3.10
+- **PostgreSQL** >= 14
+- **OpenRouter API Key** - Get one at [openrouter.ai](https://openrouter.ai)
+
+### 1. Clone & Install Frontend
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <repo-url> GenView
+cd GenView
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Set Up Backend
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 3. Configure Environment Variables
 
-## Learn More
+**Backend** (`backend/.env`):
+```env
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/genview
+OPENROUTER_API_KEY=your-openrouter-api-key-here
+CORS_ORIGINS=["http://localhost:3000"]
+```
 
-To learn more about Next.js, take a look at the following resources:
+**Frontend** (`.env`):
+```env
+BACKEND_URL=http://localhost:8000
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 4. Set Up Database
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+# Create the PostgreSQL database
+createdb genview
 
-## Deploy on Vercel
+# Tables are auto-created on backend startup via SQLAlchemy
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 5. Run the Application
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Start both services in separate terminals:
+
+```bash
+# Terminal 1 - Backend (port 8000)
+cd backend
+source venv/bin/activate
+uvicorn app.main:app --reload --port 8000
+
+# Terminal 2 - Frontend (port 3000)
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## How It Works
+
+1. **User describes a dashboard** in the chat panel (e.g., "Create a sales dashboard with a revenue chart and KPI cards")
+2. **Backend streams LLM response** from OpenRouter with a specialized system prompt that instructs the model to generate a `DashboardContent.tsx` React component
+3. **Code parser** extracts `tsx` or `mermaid` code blocks from the streaming response
+4. **Sandpack preview** renders the component inside an App Shell that provides sidebar/top-nav layout, theme CSS variables, and pre-configured dependencies (Recharts, Lucide icons)
+5. **Mermaid preview** renders architecture diagrams when the model outputs mermaid blocks
+6. **Multi-turn iteration** - users can refine the generated component through follow-up messages, with the current code injected as context
+
+## Themes
+
+| Theme | Description |
+|-------|-------------|
+| `modern-b2b` | Clean blue/white enterprise look |
+| `dark-dashboard` | Dark mode with neon accents |
+| `steel-metallurgy` | Industrial warm tones |
+| `wind-energy` | Green energy-inspired palette |
+
+Themes are applied via CSS custom properties on a `data-theme` attribute and propagated into the Sandpack preview.
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/chat` | Stream chat completion from OpenRouter |
+| `GET` | `/api/models` | List available OpenRouter models (5min cache) |
+| `GET/POST` | `/api/projects` | List / create projects |
+| `GET/PATCH/DELETE` | `/api/projects/:id` | Get / update / delete a project |
+| `GET/POST` | `/api/conversations` | List / create conversations |
+| `GET/DELETE` | `/api/conversations/:id` | Get / delete a conversation |
+| `GET` | `/api/conversations/:id/messages` | List messages in a conversation |
+
+## License
+
+Private - All rights reserved.
