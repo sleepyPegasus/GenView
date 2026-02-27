@@ -1,15 +1,69 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAppStore } from "@/store/app-store";
 import { SandpackRenderer } from "./sandpack-preview";
 import { MermaidPreview } from "./mermaid-preview";
-import { Code2, Eye, Copy, Check } from "lucide-react";
+import { Code2, Eye, Copy, Check, Loader2 } from "lucide-react";
+
+/**
+ * Lightweight code viewer used during streaming.
+ * Avoids Sandpack entirely so there's no sandbox recompile / flicker.
+ */
+function StreamingCodeViewer() {
+  const currentCode = useAppStore((s) => s.currentCode);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  // Auto-scroll to bottom as code streams in
+  useEffect(() => {
+    if (preRef.current) {
+      preRef.current.scrollTop = preRef.current.scrollHeight;
+    }
+  }, [currentCode]);
+
+  return (
+    <div className="h-full flex flex-col">
+      <div
+        className="flex items-center gap-2 px-4 py-2 text-xs flex-shrink-0"
+        style={{ color: "var(--gen-primary)", borderBottom: "1px solid var(--gen-border)" }}
+      >
+        <Loader2 size={12} className="animate-spin" />
+        <span>Generating code...</span>
+      </div>
+      <pre
+        ref={preRef}
+        className="flex-1 overflow-auto p-4 text-xs leading-relaxed font-mono"
+        style={{
+          background: "var(--gen-muted)",
+          color: "var(--gen-foreground)",
+          margin: 0,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}
+      >
+        {currentCode || "Waiting for code..."}
+      </pre>
+    </div>
+  );
+}
 
 export function RenderCanvas() {
-  const [activeTab, setActiveTab] = useState<"preview" | "code">("preview");
+  const [activeTab, setActiveTab] = useState<"preview" | "code">("code");
   const [copied, setCopied] = useState(false);
-  const { currentCode, renderMode } = useAppStore();
+  const { currentCode, renderMode, isStreaming } = useAppStore();
+  const prevStreamingRef = useRef(false);
+
+  // Auto-switch tabs on streaming state transitions
+  useEffect(() => {
+    if (isStreaming && !prevStreamingRef.current) {
+      // Streaming just started → show code
+      setActiveTab("code");
+    } else if (!isStreaming && prevStreamingRef.current && currentCode && renderMode) {
+      // Streaming just ended with code → show preview
+      setActiveTab("preview");
+    }
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming, currentCode, renderMode]);
 
   const handleCopy = async () => {
     if (currentCode) {
@@ -31,11 +85,12 @@ export function RenderCanvas() {
         <div className="flex gap-1">
           <button
             onClick={() => setActiveTab("preview")}
+            disabled={isStreaming}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
             style={
               activeTab === "preview"
                 ? { background: "var(--gen-primary)", color: "#fff" }
-                : { color: "var(--gen-muted-fg)" }
+                : { color: "var(--gen-muted-fg)", opacity: isStreaming ? 0.4 : 1 }
             }
           >
             <Eye size={13} />
@@ -85,7 +140,11 @@ export function RenderCanvas() {
               </p>
             </div>
           </div>
+        ) : isStreaming ? (
+          // During streaming: show raw code viewer (no Sandpack → no flicker)
+          <StreamingCodeViewer />
         ) : renderMode === "sandpack" ? (
+          // After streaming: mount Sandpack with complete code
           <SandpackRenderer showCode={showCode} />
         ) : renderMode === "mermaid" ? (
           <MermaidPreview code={currentCode} showCode={showCode} />

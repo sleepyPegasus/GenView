@@ -11,37 +11,22 @@ import { useAppStore } from "@/store/app-store";
 import { generateSandpackFiles } from "@/lib/sandpack-files";
 
 /**
- * Inner component that subscribes to currentCode from the Zustand store
- * and dynamically updates the DashboardContent.tsx file via Sandpack API.
+ * Syncs currentCode from the Zustand store into the Sandpack sandbox.
  *
- * This is deliberately isolated from SandpackProvider's render cycle —
- * when currentCode changes, only this component re-renders (via store
- * subscription), NOT the SandpackProvider itself. This prevents the
- * Provider from resetting its internal file state.
+ * This component is only active when streaming is finished (the parent
+ * SandpackRenderer is unmounted during streaming). It handles the case
+ * where currentCode changes after Sandpack is already mounted (e.g.
+ * settings change or a subsequent completed response).
  */
 function SandpackFileUpdater() {
   const { sandpack } = useSandpack();
   const currentCode = useAppStore((s) => s.currentCode);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastCodeRef = useRef<string>("");
+  const lastCodeRef = useRef("");
 
   useEffect(() => {
     if (!currentCode || currentCode === lastCodeRef.current) return;
-
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-
-    debounceRef.current = setTimeout(() => {
-      lastCodeRef.current = currentCode;
-      sandpack.updateFile("/DashboardContent.tsx", currentCode, true);
-    }, 300);
-
-    return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
-    };
+    lastCodeRef.current = currentCode;
+    sandpack.updateFile("/DashboardContent.tsx", currentCode, true);
   }, [currentCode, sandpack]);
 
   return null;
@@ -52,16 +37,16 @@ interface SandpackRendererProps {
 }
 
 /**
- * Memoized Sandpack wrapper. Only re-renders when `showCode` changes
- * (Preview ↔ Code tab switch). Code updates go through SandpackFileUpdater
- * which calls sandpack.updateFile() without causing the Provider to remount.
+ * Sandpack wrapper that is only mounted after streaming completes.
+ * It captures the final code at mount time via getState() for initial files.
+ * Subsequent code changes are handled by SandpackFileUpdater.
  */
 export const SandpackRenderer = React.memo(function SandpackRenderer({
   showCode,
 }: SandpackRendererProps) {
   const { appName, logoUrl, navLayout, theme } = useAppStore();
 
-  // Capture current code at mount time for initial files (non-reactive)
+  // Capture current code at mount time (non-reactive — no re-render on code change)
   const initialCodeRef = useRef(useAppStore.getState().currentCode);
 
   const initialFiles = useMemo(
