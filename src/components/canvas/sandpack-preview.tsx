@@ -26,12 +26,10 @@ export function SandpackRenderer({ code, showCode }: SandpackRendererProps) {
 
   return (
     <SandpackProvider
-      template="react"
+      template="react-ts"
       files={files}
       customSetup={{
         dependencies: {
-          react: "^18.2.0",
-          "react-dom": "^18.2.0",
           recharts: "^2.12.0",
           "lucide-react": "^0.400.0",
         },
