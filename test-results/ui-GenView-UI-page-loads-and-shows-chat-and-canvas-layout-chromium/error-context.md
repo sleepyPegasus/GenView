@@ -1,0 +1,99 @@
+# Page snapshot
+
+```yaml
+- generic:
+  - generic [active]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - navigation [ref=e6]:
+            - button "previous" [disabled] [ref=e7]:
+              - img "previous" [ref=e8]
+            - generic [ref=e10]:
+              - generic [ref=e11]: 1/
+              - text: "1"
+            - button "next" [disabled] [ref=e12]:
+              - img "next" [ref=e13]
+          - img
+        - generic [ref=e15]:
+          - generic [ref=e16]:
+            - img [ref=e17]
+            - generic "Latest available version is detected (16.1.6)." [ref=e19]: Next.js 16.1.6
+            - generic [ref=e20]: Turbopack
+          - img
+      - dialog "Build Error" [ref=e22]:
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - generic [ref=e27]:
+              - generic [ref=e29]: Build Error
+              - generic [ref=e30]:
+                - button "Copy Error Info" [ref=e31] [cursor=pointer]:
+                  - img [ref=e32]
+                - button "No related documentation found" [disabled] [ref=e34]:
+                  - img [ref=e35]
+                - button "Attach Node.js inspector" [ref=e37] [cursor=pointer]:
+                  - img [ref=e38]
+            - generic [ref=e47]: Export PanelGroup doesn't exist in target module
+          - generic [ref=e49]:
+            - generic [ref=e51]:
+              - img [ref=e53]
+              - generic [ref=e56]: ./src/app/page.tsx (5:1)
+              - button "Open in editor" [ref=e57] [cursor=pointer]:
+                - img [ref=e59]
+            - generic [ref=e62]:
+              - generic [ref=e63]: Export
+              - text: PanelGroup
+              - generic [ref=e64]: doesn't exist in target module
+              - generic [ref=e65]: 3 |
+              - text: import
+              - generic [ref=e66]: "{ useState }"
+              - text: from "react";
+              - generic [ref=e67]: 4 |
+              - text: import
+              - generic [ref=e68]: "{ useAppStore }"
+              - text: from "@/store/app-store"; >
+              - generic [ref=e69]: 5 |
+              - text: import
+              - generic [ref=e70]: "{"
+              - text: Panel, PanelGroup, PanelResizeHandle
+              - generic [ref=e71]: "}"
+              - text: from "react-resizable-panels";
+              - generic [ref=e72]: "|"
+              - text: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+              - generic [ref=e73]: 6 |
+              - text: import
+              - generic [ref=e74]: "{"
+              - text: ChatPanel
+              - generic [ref=e75]: "}"
+              - text: from "@/components/chat/chat-panel";
+              - generic [ref=e76]: 7 |
+              - text: import
+              - generic [ref=e77]: "{"
+              - text: RenderCanvas
+              - generic [ref=e78]: "}"
+              - text: from "@/components/canvas/render-canvas";
+              - generic [ref=e79]: 8 |
+              - text: import
+              - generic [ref=e80]: "{"
+              - text: ProjectSidebar
+              - generic [ref=e81]: "}"
+              - text: from "@/components/sidebar/project-sidebar";
+              - generic [ref=e82]: The export
+              - text: PanelGroup
+              - generic [ref=e83]: was not found in module
+              - generic [ref=e84]: "[project]/node_modules/react-resizable-panels/dist/react-resizable-panels.js [app-client] (ecmascript)"
+              - generic [ref=e85]: . Did you mean to import
+              - text: Panel
+              - generic [ref=e86]: "? All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist. Import traces: Client Component Browser: ./src/app/page.tsx [Client Component Browser] ./src/app/page.tsx [Server Component] Client Component SSR: ./src/app/page.tsx [Client Component SSR] ./src/app/page.tsx [Server Component]"
+        - generic [ref=e87]: "1"
+        - generic [ref=e88]: "2"
+    - generic [ref=e93] [cursor=pointer]:
+      - button "Open Next.js Dev Tools" [ref=e94]:
+        - img [ref=e95]
+      - button "Open issues overlay" [ref=e99]:
+        - generic [ref=e100]:
+          - generic [ref=e101]: "0"
+          - generic [ref=e102]: "1"
+        - generic [ref=e103]: Issue
+  - alert [ref=e104]
+```

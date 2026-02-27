@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import Conversation, Message
-from app.schemas import ConversationCreate, ConversationOut, MessageOut
+from app.schemas import ConversationCreate, ConversationOut, ConversationUpdate, MessageOut
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -45,6 +45,22 @@ async def get_conversation(
     conv = result.scalar_one_or_none()
     if not conv:
         raise HTTPException(404, "Conversation not found")
+    return conv
+
+
+@router.patch("/{conversation_id}", response_model=ConversationOut)
+async def update_conversation(
+    conversation_id: str,
+    body: ConversationUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    conv = await db.get(Conversation, conversation_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    if body.title is not None:
+        conv.title = body.title
+    await db.commit()
+    await db.refresh(conv)
     return conv
 
 

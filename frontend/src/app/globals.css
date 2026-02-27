@@ -37,6 +37,20 @@ body {
   height: 100% !important;
 }
 
+/* Sandpack 代码区域滚动修复：Layout 和 Editor 占满高度并启用内部滚动 */
+.gen-sandpack-layout {
+  height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+.gen-sandpack-editor {
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

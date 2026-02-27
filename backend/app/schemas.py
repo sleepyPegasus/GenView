@@ -36,6 +36,10 @@ class ConversationCreate(BaseModel):
     title: str = "New Conversation"
 
 
+class ConversationUpdate(BaseModel):
+    title: str | None = None
+
+
 class ConversationOut(BaseModel):
     id: str
     title: str

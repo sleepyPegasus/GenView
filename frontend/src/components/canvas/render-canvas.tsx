@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAppStore } from "@/store/app-store";
 import { SandpackRenderer } from "./sandpack-preview";
 import { MermaidPreview } from "./mermaid-preview";
-import { Code2, Eye, Copy, Check, Loader2 } from "lucide-react";
+import { Code2, Eye, Copy, Check, Loader2, Download } from "lucide-react";
 
 /**
  * Lightweight code viewer used during streaming.
@@ -73,6 +73,18 @@ export function RenderCanvas() {
     }
   };
 
+  const handleExportFile = () => {
+    if (!currentCode) return;
+    const filename = renderMode === "mermaid" ? "diagram.mmd" : "DashboardContent.tsx";
+    const blob = new Blob([currentCode], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const showCode = activeTab === "code";
 
   return (
@@ -84,6 +96,7 @@ export function RenderCanvas() {
       >
         <div className="flex gap-1">
           <button
+            data-testid="tab-preview"
             onClick={() => setActiveTab("preview")}
             disabled={isStreaming}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
@@ -97,6 +110,7 @@ export function RenderCanvas() {
             Preview
           </button>
           <button
+            data-testid="tab-code"
             onClick={() => setActiveTab("code")}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
             style={
@@ -110,14 +124,25 @@ export function RenderCanvas() {
           </button>
         </div>
         {currentCode && (
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-colors"
-            style={{ color: "var(--gen-muted-fg)" }}
-          >
-            {copied ? <Check size={13} /> : <Copy size={13} />}
-            {copied ? "Copied!" : "Copy Code"}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-colors"
+              style={{ color: "var(--gen-muted-fg)" }}
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+              {copied ? "Copied!" : "Copy"}
+            </button>
+            <button
+              onClick={handleExportFile}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-colors"
+              style={{ color: "var(--gen-muted-fg)" }}
+              title={renderMode === "mermaid" ? "Export as .mmd file" : "Export as .tsx file"}
+            >
+              <Download size={13} />
+              {renderMode === "mermaid" ? "Export" : "Export .tsx"}
+            </button>
+          </div>
         )}
       </div>
 

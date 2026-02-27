@@ -1,4 +1,5 @@
 import type { IndustryTheme, NavLayout } from "@/store/app-store";
+import type { ThemeTokens } from "./themes";
 import { themeMap } from "./themes";
 
 export function generateSandpackFiles(opts: {
@@ -6,9 +7,12 @@ export function generateSandpackFiles(opts: {
   logoUrl: string;
   navLayout: NavLayout;
   theme: IndustryTheme;
+  customTheme?: ThemeTokens | null;
   contentCode: string;
+  /** Extra files for multi-file projects */
+  extraFiles?: Record<string, string>;
 }) {
-  const tokens = themeMap[opts.theme];
+  const tokens = opts.customTheme ?? themeMap[opts.theme];
 
   const globalsCss = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -173,10 +177,18 @@ export default function DashboardContent() {
 }
 `;
 
-  return {
+  const files: Record<string, string> = {
     "/App.tsx": appTsx,
     "/Layout.tsx": layoutTsx,
     "/DashboardContent.tsx": dashboardContentTsx,
     "/globals.css": globalsCss,
   };
+  // Merge extra files (ensure paths start with /)
+  for (const [path, code] of Object.entries(opts.extraFiles ?? {})) {
+    const normalized = path.startsWith("/") ? path : `/${path}`;
+    if (normalized !== "/App.tsx" && normalized !== "/Layout.tsx" && normalized !== "/globals.css") {
+      files[normalized] = code;
+    }
+  }
+  return files;
 }
