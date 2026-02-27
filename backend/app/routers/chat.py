@@ -1,5 +1,7 @@
 import json
+import logging
 import re
+import time
 
 import httpx
 from fastapi import APIRouter, Depends
@@ -12,6 +14,7 @@ from app.models import Message
 from app.schemas import ChatRequest
 
 router = APIRouter()
+logger = logging.getLogger("genview.chat")
 
 SYSTEM_PROMPT_TEMPLATE = """你是一个资深的工业软件 UI/UX 架构师，名为 GenView AI。当前系统的全局配置如下：
 - 主业务风格 (Theme): {theme}
@@ -62,6 +65,41 @@ def _extract_code_block(text: str) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _sse_event(event: str, data: dict) -> str:
+    """Format a Server-Sent Event."""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _detect_phase(full_text: str, new_chunk: str) -> str | None:
+    """Detect the current generation phase based on accumulated text."""
+    if "```tsx" in new_chunk:
+        return "generating_code"
+    if "```mermaid" in new_chunk:
+        return "generating_diagram"
+    if full_text.count("```") >= 2 and new_chunk.rstrip().endswith("```"):
+        return "code_complete"
+    return None
+
+
+def _estimate_progress(full_text: str, in_code_block: bool) -> int:
+    """Estimate generation progress as percentage (0-100)."""
+    text_len = len(full_text)
+    if text_len < 50:
+        return 5
+    if not in_code_block:
+        return min(20, 5 + text_len // 20)
+    else:
+        code_len = text_len
+        if code_len < 500:
+            return 30
+        elif code_len < 2000:
+            return 30 + min(40, code_len // 50)
+        elif code_len < 5000:
+            return 70 + min(20, (code_len - 2000) // 150)
+        else:
+            return min(95, 90 + (code_len - 5000) // 500)
+
+
 @router.post("/api/chat")
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     system_prompt = _build_system_prompt(req)
@@ -69,6 +107,8 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     openai_messages.extend(_convert_messages(req))
 
     model = req.model or settings.default_model
+
+    logger.info(f"[Chat] Starting request | model={model} | messages={len(req.messages)}")
 
     # Save user message to DB if conversation exists
     if req.conversation_id and req.messages:
@@ -84,35 +124,110 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
     async def generate():
         full_text = ""
+        in_code_block = False
+        last_progress = 0
+        start_time = time.time()
+        token_count = 0
+
+        logger.info(f"[Chat] Connecting to OpenRouter | model={model}")
+        yield _sse_event("step", {"label": "Connecting to AI model...", "status": "loading"})
+
         async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST",
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.openrouter_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "messages": openai_messages,
-                    "stream": True,
-                },
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data = line[6:]
-                    if data.strip() == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                        delta = chunk["choices"][0].get("delta", {})
-                        text = delta.get("content", "")
-                        if text:
+            try:
+                async with client.stream(
+                    "POST",
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.openrouter_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": openai_messages,
+                        "stream": True,
+                    },
+                ) as resp:
+                    if resp.status_code != 200:
+                        error_body = ""
+                        async for chunk in resp.aiter_text():
+                            error_body += chunk
+                        logger.error(f"[Chat] OpenRouter error {resp.status_code}: {error_body[:500]}")
+                        yield _sse_event("error", {"message": f"AI model returned error ({resp.status_code})"})
+                        return
+
+                    yield _sse_event("step", {"label": "Connected, AI is thinking...", "status": "active"})
+                    logger.info(f"[Chat] Connected, streaming started")
+
+                    thinking_sent = False
+
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data = line[6:]
+                        if data.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk["choices"][0].get("delta", {})
+
+                            # Handle thinking/reasoning tokens (some models support this)
+                            reasoning = delta.get("reasoning_content") or delta.get("reasoning", "")
+                            if reasoning:
+                                if not thinking_sent:
+                                    yield _sse_event("step", {"label": "AI is reasoning...", "status": "active"})
+                                    thinking_sent = True
+                                yield _sse_event("thinking", {"text": reasoning})
+                                continue
+
+                            text = delta.get("content", "")
+                            if not text:
+                                continue
+
+                            token_count += 1
                             full_text += text
-                            yield text
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        continue
+
+                            # Detect phase transitions
+                            phase = _detect_phase(full_text, text)
+                            if phase == "generating_code":
+                                in_code_block = True
+                                yield _sse_event("step", {"label": "Generating code...", "status": "active"})
+                                logger.info(f"[Chat] Code generation started | tokens_so_far={token_count}")
+                            elif phase == "generating_diagram":
+                                in_code_block = True
+                                yield _sse_event("step", {"label": "Generating diagram...", "status": "active"})
+                                logger.info(f"[Chat] Diagram generation started | tokens_so_far={token_count}")
+                            elif phase == "code_complete":
+                                in_code_block = False
+                                yield _sse_event("step", {"label": "Code generation complete", "status": "done"})
+                                logger.info(f"[Chat] Code generation complete | tokens={token_count}")
+
+                            # Send content
+                            yield _sse_event("content", {"text": text})
+
+                            # Send progress updates (throttled, every 5% change)
+                            progress = _estimate_progress(full_text, in_code_block)
+                            if progress - last_progress >= 5:
+                                last_progress = progress
+                                yield _sse_event("progress", {"percent": progress})
+
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            continue
+
+            except httpx.ConnectError as e:
+                logger.error(f"[Chat] Connection failed: {e}")
+                yield _sse_event("error", {"message": "Failed to connect to AI service"})
+                return
+            except httpx.ReadTimeout as e:
+                logger.error(f"[Chat] Read timeout: {e}")
+                yield _sse_event("error", {"message": "AI response timed out"})
+                return
+
+        elapsed = time.time() - start_time
+        logger.info(f"[Chat] Stream complete | tokens={token_count} | elapsed={elapsed:.1f}s | chars={len(full_text)}")
+
+        yield _sse_event("progress", {"percent": 100})
+        yield _sse_event("step", {"label": "Generation complete", "status": "done"})
+        yield _sse_event("done", {"token_count": token_count, "elapsed": round(elapsed, 1)})
 
         # Save assistant message to DB after stream completes
         if req.conversation_id and full_text:
@@ -125,5 +240,6 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                 code_language=code_lang,
             ))
             await db.commit()
+            logger.info(f"[Chat] Message saved to DB | conversation_id={req.conversation_id}")
 
-    return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
+    return StreamingResponse(generate(), media_type="text/event-stream; charset=utf-8")

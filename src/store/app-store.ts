@@ -47,7 +47,7 @@ export const useAppStore = create<AppState>((set) => ({
   logoUrl: "",
   navLayout: "side",
   theme: "modern-b2b",
-  model: "anthropic/claude-sonnet-4-20250514",
+  model: "google/gemini-3.1-pro-preview",
   currentCode: "",
   renderMode: null,
 
