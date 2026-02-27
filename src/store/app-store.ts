@@ -28,6 +28,9 @@ export interface AppState {
   currentCode: string;
   renderMode: RenderMode;
 
+  // Streaming state (shared between ChatPanel → RenderCanvas)
+  isStreaming: boolean;
+
   // Actions
   setProjectId: (id: string | null) => void;
   setConversationId: (id: string | null) => void;
@@ -38,6 +41,7 @@ export interface AppState {
   setModel: (model: string) => void;
   setCurrentCode: (code: string) => void;
   setRenderMode: (mode: RenderMode) => void;
+  setIsStreaming: (streaming: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -50,6 +54,7 @@ export const useAppStore = create<AppState>((set) => ({
   model: "google/gemini-3.1-pro-preview",
   currentCode: "",
   renderMode: null,
+  isStreaming: false,
 
   setProjectId: (projectId) => set({ projectId }),
   setConversationId: (conversationId) => set({ conversationId }),
@@ -60,4 +65,5 @@ export const useAppStore = create<AppState>((set) => ({
   setModel: (model) => set({ model }),
   setCurrentCode: (code) => set({ currentCode: code }),
   setRenderMode: (mode) => set({ renderMode: mode }),
+  setIsStreaming: (isStreaming) => set({ isStreaming }),
 }));

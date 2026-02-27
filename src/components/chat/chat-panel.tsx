@@ -178,6 +178,7 @@ export function ChatPanel() {
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
+      useAppStore.getState().setIsStreaming(true);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -283,6 +284,7 @@ export function ChatPanel() {
         }
       } finally {
         setIsStreaming(false);
+        useAppStore.getState().setIsStreaming(false);
         abortRef.current = null;
       }
     },
