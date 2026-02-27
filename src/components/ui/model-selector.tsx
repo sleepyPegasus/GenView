@@ -16,12 +16,12 @@ interface ModelSelectorProps {
 }
 
 const POPULAR_IDS = [
+  "google/gemini-3.1-pro-preview",
   "anthropic/claude-sonnet-4-20250514",
-  "anthropic/claude-3.5-sonnet",
   "openai/gpt-4o",
-  "openai/gpt-4o-mini",
   "google/gemini-2.5-pro-preview",
   "deepseek/deepseek-chat-v3-0324",
+  "openai/gpt-4o-mini",
 ];
 
 function formatPrice(perToken: string): string {

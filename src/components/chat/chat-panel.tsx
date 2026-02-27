@@ -1,19 +1,44 @@
 "use client";
 
-import { useRef, useEffect, useState, useMemo } from "react";
-import { useChat } from "@ai-sdk/react";
-import { TextStreamChatTransport } from "ai";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { useAppStore } from "@/store/app-store";
 import {
   parseResponse,
   hasCompleteCodeBlock,
   extractLatestCodeBlock,
 } from "@/lib/code-parser";
-import { getMessageText } from "@/lib/message-utils";
 import { SettingsPanel } from "./settings-panel";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import {
+  Send,
+  Bot,
+  User,
+  Loader2,
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  CheckCircle2,
+  Circle,
+  Zap,
+} from "lucide-react";
+
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  thinking?: string;
+  steps?: StepInfo[];
+  progress?: number;
+  tokenCount?: number;
+  elapsed?: number;
+}
+
+interface StepInfo {
+  label: string;
+  status: "loading" | "active" | "done";
+  timestamp: number;
+}
 
 export function ChatPanel() {
   const {
@@ -30,41 +55,9 @@ export function ChatPanel() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState("");
-
-  const storeRef = useRef({ appName, logoUrl, navLayout, theme, model, currentCode, conversationId });
-  storeRef.current = { appName, logoUrl, navLayout, theme, model, currentCode, conversationId };
-
-  const transport = useMemo(
-    () =>
-      new TextStreamChatTransport({
-        api: "/api/chat",
-        body: () => ({
-          app_name: storeRef.current.appName,
-          logo_url: storeRef.current.logoUrl,
-          nav_layout: storeRef.current.navLayout,
-          theme: storeRef.current.theme,
-          model: storeRef.current.model,
-          current_code: storeRef.current.currentCode,
-          conversation_id: storeRef.current.conversationId,
-        }),
-      }),
-    []
-  );
-
-  const { messages, sendMessage, status, stop } = useChat({
-    transport,
-    onFinish: ({ message }) => {
-      const text = getMessageText(message);
-      const parsed = parseResponse(text);
-      if (parsed.codeBlocks.length > 0) {
-        const lastBlock = parsed.codeBlocks[parsed.codeBlocks.length - 1];
-        setCurrentCode(lastBlock.code);
-        setRenderMode(lastBlock.language === "tsx" ? "sandpack" : "mermaid");
-      }
-    },
-  });
-
-  const isStreaming = status === "streaming" || status === "submitted";
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -74,10 +67,9 @@ export function ChatPanel() {
   useEffect(() => {
     if (!isStreaming || messages.length === 0) return;
     const lastMsg = messages[messages.length - 1];
-    if (lastMsg.role !== "assistant") return;
+    if (lastMsg.role !== "assistant" || !lastMsg.content) return;
 
-    const content = getMessageText(lastMsg);
-    if (!content) return;
+    const content = lastMsg.content;
 
     const tsxCode = extractLatestCodeBlock(content, "tsx");
     if (tsxCode && tsxCode.length > 50) {
@@ -95,12 +87,188 @@ export function ChatPanel() {
     }
   }, [messages, isStreaming, setCurrentCode, setRenderMode]);
 
+  const sendMessage = useCallback(
+    async (text: string) => {
+      const userMsg: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: text,
+      };
+
+      const assistantId = `assistant-${Date.now()}`;
+      const assistantMsg: ChatMessage = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        thinking: "",
+        steps: [],
+        progress: 0,
+      };
+
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setIsStreaming(true);
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        // Build messages payload matching the backend ChatRequest schema
+        const allMessages = [...messages, userMsg].map((m) => ({
+          role: m.role,
+          parts: [{ type: "text", text: m.content }],
+        }));
+
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: allMessages,
+            app_name: appName,
+            logo_url: logoUrl,
+            nav_layout: navLayout,
+            theme,
+            model,
+            current_code: currentCode,
+            conversation_id: conversationId,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, content: `Error: ${res.status} - ${errText}` }
+                : m
+            )
+          );
+          setIsStreaming(false);
+          return;
+        }
+
+        const reader = res.body?.getReader();
+        if (!reader) return;
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          let eventType = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith("data: ") && eventType) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    const updated = { ...m };
+                    switch (eventType) {
+                      case "content":
+                        updated.content = m.content + data.text;
+                        break;
+                      case "thinking":
+                        updated.thinking = (m.thinking || "") + data.text;
+                        break;
+                      case "step": {
+                        const steps = [...(m.steps || [])];
+                        // Mark previous active/loading steps as done when new step arrives
+                        if (steps.length > 0 && data.status !== "done") {
+                          const last = steps[steps.length - 1];
+                          if (last.status === "loading" || last.status === "active") {
+                            steps[steps.length - 1] = { ...last, status: "done" };
+                          }
+                        }
+                        if (data.status === "done" && steps.length > 0) {
+                          const idx = steps.findIndex((s) => s.label === data.label);
+                          if (idx >= 0) {
+                            steps[idx] = { ...steps[idx], status: "done" };
+                          } else {
+                            steps.push({ label: data.label, status: "done", timestamp: Date.now() });
+                          }
+                        } else {
+                          steps.push({ label: data.label, status: data.status, timestamp: Date.now() });
+                        }
+                        updated.steps = steps;
+                        break;
+                      }
+                      case "progress":
+                        updated.progress = data.percent;
+                        break;
+                      case "done":
+                        updated.progress = 100;
+                        updated.tokenCount = data.token_count;
+                        updated.elapsed = data.elapsed;
+                        break;
+                      case "error":
+                        updated.content = m.content + `\n\n${data.message}`;
+                        break;
+                    }
+                    return updated;
+                  })
+                );
+              } catch {
+                // ignore parse errors
+              }
+              eventType = "";
+            } else if (line === "") {
+              eventType = "";
+            }
+          }
+        }
+
+        // After stream completes, extract code for canvas
+        setMessages((prev) => {
+          const last = prev.find((m) => m.id === assistantId);
+          if (last?.content) {
+            const parsed = parseResponse(last.content);
+            if (parsed.codeBlocks.length > 0) {
+              const lastBlock = parsed.codeBlocks[parsed.codeBlocks.length - 1];
+              setCurrentCode(lastBlock.code);
+              setRenderMode(lastBlock.language === "tsx" ? "sandpack" : "mermaid");
+            }
+          }
+          return prev;
+        });
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") {
+          // User stopped generation
+        } else {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, content: m.content + "\n\nConnection error" }
+                : m
+            )
+          );
+        }
+      } finally {
+        setIsStreaming(false);
+        abortRef.current = null;
+      }
+    },
+    [messages, appName, logoUrl, navLayout, theme, model, currentCode, conversationId, setCurrentCode, setRenderMode]
+  );
+
+  const stopGeneration = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
   const onSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!inputText.trim() || isStreaming) return;
     const text = inputText;
     setInputText("");
-    await sendMessage({ text });
+    await sendMessage(text);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -130,70 +298,119 @@ export function ChatPanel() {
         )}
 
         {messages.map((msg) => {
-          const text = getMessageText(msg);
-          const parsed = parseResponse(text);
-          return (
-            <div
-              key={msg.id}
-              className={`flex gap-3 ${
-                msg.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              {msg.role === "assistant" && (
+          if (msg.role === "user") {
+            return (
+              <div key={msg.id} className="flex gap-3 justify-end">
                 <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                  style={{ background: "var(--gen-primary)" }}
+                  className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
+                  style={{ background: "var(--gen-primary)", color: "#ffffff" }}
                 >
-                  <Bot size={14} className="text-white" />
+                  {msg.content}
                 </div>
-              )}
-              <div
-                className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed"
-                style={
-                  msg.role === "user"
-                    ? { background: "var(--gen-primary)", color: "#ffffff" }
-                    : { background: "var(--gen-muted)", color: "var(--gen-foreground)" }
-                }
-              >
-                {parsed.text && (
-                  <div className="whitespace-pre-wrap">{parsed.text}</div>
-                )}
-                {parsed.codeBlocks.length > 0 && (
-                  <div className="mt-2 text-xs opacity-70 italic">
-                    {parsed.codeBlocks.map((b, i) => (
-                      <span key={i}>
-                        [{b.language.toUpperCase()} code rendered on canvas]
-                        {i < parsed.codeBlocks.length - 1 ? " " : ""}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {!parsed.text && parsed.codeBlocks.length === 0 && text && (
-                  <div className="whitespace-pre-wrap">{text}</div>
-                )}
-              </div>
-              {msg.role === "user" && (
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                   style={{ background: "var(--gen-muted)" }}
                 >
                   <User size={14} style={{ color: "var(--gen-foreground)" }} />
                 </div>
-              )}
+              </div>
+            );
+          }
+
+          // Assistant message
+          const parsed = parseResponse(msg.content);
+          const hasThinking = msg.thinking && msg.thinking.length > 0;
+          const hasSteps = msg.steps && msg.steps.length > 0;
+          const isLastAssistant = msg.id === messages[messages.length - 1]?.id;
+          const showProgress = isStreaming && isLastAssistant;
+
+          return (
+            <div key={msg.id} className="flex gap-3 justify-start">
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                style={{ background: "var(--gen-primary)" }}
+              >
+                <Bot size={14} className="text-white" />
+              </div>
+              <div className="max-w-[85%] space-y-2 min-w-0 flex-1">
+                {/* Progress bar */}
+                {showProgress && msg.progress !== undefined && msg.progress < 100 && (
+                  <ProgressBar progress={msg.progress} />
+                )}
+
+                {/* Steps */}
+                {hasSteps && <StepsList steps={msg.steps!} />}
+
+                {/* Thinking block */}
+                {hasThinking && <ThinkingBlock text={msg.thinking!} />}
+
+                {/* Content */}
+                {(parsed.text || parsed.codeBlocks.length > 0) && (
+                  <div
+                    className="rounded-xl px-3.5 py-2.5 text-sm leading-relaxed"
+                    style={{ background: "var(--gen-muted)", color: "var(--gen-foreground)" }}
+                  >
+                    {parsed.text && (
+                      <div className="whitespace-pre-wrap">{parsed.text}</div>
+                    )}
+                    {parsed.codeBlocks.length > 0 && (
+                      <div className="mt-2 text-xs opacity-70 italic">
+                        {parsed.codeBlocks.map((b, i) => (
+                          <span key={i}>
+                            [{b.language.toUpperCase()} code rendered on canvas]
+                            {i < parsed.codeBlocks.length - 1 ? " " : ""}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Empty state during streaming */}
+                {!parsed.text && parsed.codeBlocks.length === 0 && !hasThinking && showProgress && (
+                  <div
+                    className="rounded-xl px-3.5 py-2.5 text-sm"
+                    style={{ background: "var(--gen-muted)", color: "var(--gen-muted-fg)" }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Loader2 size={14} className="animate-spin" />
+                      <span className="text-xs">Waiting for response...</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Stats (after completion) */}
+                {msg.tokenCount !== undefined && msg.elapsed !== undefined && (
+                  <div
+                    className="flex items-center gap-3 text-[10px] px-1"
+                    style={{ color: "var(--gen-muted-fg)" }}
+                  >
+                    <span className="flex items-center gap-1">
+                      <Zap size={10} />
+                      {msg.tokenCount} tokens
+                    </span>
+                    <span>{msg.elapsed}s</span>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
 
         {isStreaming && (
-          <div className="flex items-center gap-2" style={{ color: "var(--gen-muted-fg)" }}>
-            <Loader2 size={14} className="animate-spin" />
-            <span className="text-xs">Generating...</span>
+          <div className="flex items-center gap-2 pl-10" style={{ color: "var(--gen-muted-fg)" }}>
             <button
-              onClick={stop}
-              className="text-xs underline"
-              style={{ color: "var(--gen-muted-fg)" }}
+              onClick={stopGeneration}
+              className="text-xs px-2.5 py-1 rounded-md transition-colors"
+              style={{
+                border: "1px solid var(--gen-border)",
+                color: "var(--gen-foreground)",
+                background: "var(--gen-card)",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--gen-muted)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--gen-card)"; }}
             >
-              Stop
+              Stop generating
             </button>
           </div>
         )}
@@ -220,6 +437,91 @@ export function ChatPanel() {
             <Send size={16} />
           </Button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+/* ── Sub-components ─────────────────────────────────── */
+
+function ProgressBar({ progress }: { progress: number }) {
+  return (
+    <div className="flex items-center gap-2 px-1">
+      <div
+        className="flex-1 h-1.5 rounded-full overflow-hidden"
+        style={{ background: "var(--gen-muted)" }}
+      >
+        <div
+          className="h-full rounded-full transition-all duration-300 ease-out"
+          style={{
+            width: `${progress}%`,
+            background: "var(--gen-primary)",
+          }}
+        />
+      </div>
+      <span className="text-[10px] tabular-nums flex-shrink-0" style={{ color: "var(--gen-muted-fg)" }}>
+        {progress}%
+      </span>
+    </div>
+  );
+}
+
+function StepsList({ steps }: { steps: StepInfo[] }) {
+  return (
+    <div className="space-y-1 px-1">
+      {steps.map((step, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-2 text-xs"
+          style={{ color: step.status === "done" ? "var(--gen-muted-fg)" : "var(--gen-foreground)" }}
+        >
+          {step.status === "done" ? (
+            <CheckCircle2 size={12} style={{ color: "#22c55e" }} className="flex-shrink-0" />
+          ) : step.status === "active" ? (
+            <Loader2 size={12} className="animate-spin flex-shrink-0" style={{ color: "var(--gen-primary)" }} />
+          ) : (
+            <Circle size={12} className="flex-shrink-0 opacity-40" />
+          )}
+          <span className={step.status === "done" ? "opacity-60" : ""}>
+            {step.label}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ThinkingBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > 200;
+
+  return (
+    <div
+      className="rounded-lg px-3 py-2 text-xs leading-relaxed"
+      style={{
+        background: "var(--gen-muted)",
+        border: "1px solid var(--gen-border)",
+        color: "var(--gen-muted-fg)",
+      }}
+    >
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 font-medium w-full text-left"
+        style={{ color: "var(--gen-foreground)" }}
+      >
+        <Brain size={12} style={{ color: "var(--gen-primary)" }} />
+        <span>Thinking</span>
+        {isLong && (
+          expanded
+            ? <ChevronDown size={12} className="ml-auto" />
+            : <ChevronRight size={12} className="ml-auto" />
+        )}
+      </button>
+      <div
+        className={`mt-1.5 whitespace-pre-wrap ${isLong && !expanded ? "max-h-[80px] overflow-hidden" : ""}`}
+        style={isLong && !expanded ? { maskImage: "linear-gradient(to bottom, black 60%, transparent)" } : {}}
+      >
+        {text}
       </div>
     </div>
   );
