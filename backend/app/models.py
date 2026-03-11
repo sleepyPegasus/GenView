@@ -1,7 +1,8 @@
 import datetime
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -18,9 +19,17 @@ class Project(Base):
 
     id: Mapped[str] = mapped_column(String(30), primary_key=True, default=_gen_id)
     name: Mapped[str] = mapped_column(String(200), default="GenView Dashboard")
-    logo_url: Mapped[str] = mapped_column(String(500), default="")
+    logo_url: Mapped[str] = mapped_column(Text, default="")
     nav_layout: Mapped[str] = mapped_column(String(20), default="side")
     theme: Mapped[str] = mapped_column(String(50), default="modern-b2b")
+    custom_theme: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    model: Mapped[str] = mapped_column(String(100), default="google/gemini-3.1-pro-preview")
+    conversation_mode: Mapped[str] = mapped_column(String(20), default="agent")
+    nav_background_color: Mapped[str | None] = mapped_column(String(30), nullable=True, default=None)
+    app_name_font_size: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
+    app_name_color: Mapped[str | None] = mapped_column(String(30), nullable=True, default=None)
+    nav_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    nav_menu_items: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True, default=None)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -31,6 +40,9 @@ class Project(Base):
     conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    pages: Mapped[list["Page"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class Conversation(Base):
@@ -39,6 +51,18 @@ class Conversation(Base):
     id: Mapped[str] = mapped_column(String(30), primary_key=True, default=_gen_id)
     title: Mapped[str] = mapped_column(String(300), default="New Conversation")
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # Conversation-level settings (inherited from project when created)
+    app_name: Mapped[str] = mapped_column(String(200), default="GenView Dashboard")
+    logo_url: Mapped[str] = mapped_column(Text, default="")
+    nav_layout: Mapped[str] = mapped_column(String(20), default="side")
+    theme: Mapped[str] = mapped_column(String(50), default="modern-b2b")
+    custom_theme: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    model: Mapped[str] = mapped_column(String(100), default="google/gemini-3.1-pro-preview")
+    conversation_mode: Mapped[str] = mapped_column(String(20), default="agent")
+    nav_background_color: Mapped[str | None] = mapped_column(String(30), nullable=True, default=None)
+    app_name_font_size: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
+    app_name_color: Mapped[str | None] = mapped_column(String(30), nullable=True, default=None)
+    nav_menu_items: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True, default=None)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -70,3 +94,28 @@ class Message(Base):
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 
     __table_args__ = (Index("ix_messages_conversation_id", "conversation_id"),)
+
+
+class Page(Base):
+    __tablename__ = "pages"
+
+    id: Mapped[str] = mapped_column(String(30), primary_key=True, default=_gen_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200), default="Untitled Page")
+    nav_label: Mapped[str] = mapped_column(String(100), default="")
+    code_block: Mapped[str] = mapped_column(Text, default="")
+    code_language: Mapped[str] = mapped_column(String(20), default="tsx")
+    extra_files: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    source_conversation_id: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    project: Mapped["Project"] = relationship(back_populates="pages")
+
+    __table_args__ = (Index("ix_pages_project_id", "project_id"),)

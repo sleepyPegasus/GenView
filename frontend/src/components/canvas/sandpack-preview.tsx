@@ -56,7 +56,7 @@ interface SandpackRendererProps {
 export const SandpackRenderer = React.memo(function SandpackRenderer({
   showCode,
 }: SandpackRendererProps) {
-  const { appName, logoUrl, navLayout, theme, customTheme, extraFiles } = useAppStore();
+  const { appName, logoUrl, navLayout, theme, customTheme, navMenuItems, navBackgroundColor, appNameFontSize, appNameColor, extraFiles } = useAppStore();
 
   // Capture current code at mount time (non-reactive — no re-render on code change)
   const initialCodeRef = useRef(useAppStore.getState().currentCode);
@@ -70,10 +70,14 @@ export const SandpackRenderer = React.memo(function SandpackRenderer({
         navLayout,
         theme,
         customTheme,
+        navBackgroundColor,
+        appNameFontSize,
+        appNameColor,
+        navMenuItems,
         contentCode: initialCodeRef.current,
         extraFiles: initialExtraRef.current,
       }),
-    [appName, logoUrl, navLayout, theme, customTheme]
+    [appName, logoUrl, navLayout, theme, customTheme, navBackgroundColor, appNameFontSize, appNameColor, navMenuItems]
   );
 
   return (
@@ -84,6 +88,7 @@ export const SandpackRenderer = React.memo(function SandpackRenderer({
         dependencies: {
           recharts: "^2.12.0",
           echarts: "^5.5.0",
+          "echarts-for-react": "^3.0.2",
           "lucide-react": "^0.400.0",
         },
       }}

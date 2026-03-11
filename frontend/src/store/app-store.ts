@@ -10,7 +10,7 @@ export type IndustryTheme =
   | "steel-metallurgy"
   | "wind-energy";
 
-export type RenderMode = "sandpack" | "mermaid" | null;
+export type RenderMode = "sandpack" | "mermaid" | "python" | null;
 
 export interface AppState {
   // Project & conversation tracking
@@ -18,9 +18,15 @@ export interface AppState {
   conversationId: string | null;
   /** Increment to trigger sidebar conversation list refresh */
   conversationListVersion: number;
+  /** Increment to trigger sidebar pages list refresh */
+  pagesListVersion: number;
 
   // Global settings
   appName: string;
+  /** App Name font size in nav; e.g. "14px". null = use default */
+  appNameFontSize: string | null;
+  /** App Name color in nav; e.g. "#ffffff". null = use var(--sidebar-foreground) */
+  appNameColor: string | null;
   logoUrl: string;
   navLayout: NavLayout;
   theme: IndustryTheme;
@@ -29,6 +35,15 @@ export interface AppState {
 
   // AI model selection (via OpenRouter)
   model: string;
+
+  /** Conversation mode: plan = 对话/灵感, agent = 生成页面 */
+  conversationMode: "plan" | "agent";
+
+  /** Nav menu items for chat preview layout: [{ label, icon?, selected? }] */
+  navMenuItems: { label: string; icon?: string; selected?: boolean }[];
+
+  /** Navigation background color (overrides theme sidebarBg); e.g. #1e293b */
+  navBackgroundColor: string | null;
 
   // Current rendered code (main entry: DashboardContent.tsx)
   currentCode: string;
@@ -43,12 +58,18 @@ export interface AppState {
   setProjectId: (id: string | null) => void;
   setConversationId: (id: string | null) => void;
   invalidateConversationList: () => void;
+  invalidatePagesList: () => void;
   setAppName: (name: string) => void;
+  setAppNameFontSize: (size: string | null) => void;
+  setAppNameColor: (color: string | null) => void;
   setLogoUrl: (url: string) => void;
   setNavLayout: (layout: NavLayout) => void;
   setTheme: (theme: IndustryTheme) => void;
   setCustomTheme: (tokens: ThemeTokens | null) => void;
   setModel: (model: string) => void;
+  setConversationMode: (mode: "plan" | "agent") => void;
+  setNavMenuItems: (items: { label: string; icon?: string; selected?: boolean }[]) => void;
+  setNavBackgroundColor: (color: string | null) => void;
   setCurrentCode: (code: string) => void;
   setExtraFiles: (files: Record<string, string>) => void;
   setRenderMode: (mode: RenderMode) => void;
@@ -61,12 +82,22 @@ export const useAppStore = create<AppState>()(
   projectId: null,
   conversationId: null,
   conversationListVersion: 0,
+  pagesListVersion: 0,
   appName: "GenView Dashboard",
+  appNameFontSize: null,
+  appNameColor: null,
   logoUrl: "",
   navLayout: "side",
   theme: "modern-b2b",
   customTheme: null,
   model: "google/gemini-3.1-pro-preview",
+  conversationMode: "agent",
+  navMenuItems: [
+    { label: "Dashboard", icon: "LayoutDashboard", selected: true },
+    { label: "Analytics", icon: "BarChart" },
+    { label: "Settings", icon: "Settings" },
+  ],
+  navBackgroundColor: null,
   currentCode: "",
   extraFiles: {},
   renderMode: null,
@@ -76,12 +107,19 @@ export const useAppStore = create<AppState>()(
   setConversationId: (conversationId) => set({ conversationId }),
   invalidateConversationList: () =>
     set((s) => ({ conversationListVersion: s.conversationListVersion + 1 })),
+  invalidatePagesList: () =>
+    set((s) => ({ pagesListVersion: s.pagesListVersion + 1 })),
   setAppName: (appName) => set({ appName }),
+  setAppNameFontSize: (appNameFontSize) => set({ appNameFontSize }),
+  setAppNameColor: (appNameColor) => set({ appNameColor }),
   setLogoUrl: (logoUrl) => set({ logoUrl }),
   setNavLayout: (navLayout) => set({ navLayout }),
   setTheme: (theme) => set({ theme }),
   setCustomTheme: (customTheme) => set({ customTheme }),
   setModel: (model) => set({ model }),
+  setConversationMode: (conversationMode) => set({ conversationMode }),
+  setNavMenuItems: (navMenuItems) => set({ navMenuItems }),
+  setNavBackgroundColor: (navBackgroundColor) => set({ navBackgroundColor }),
   setCurrentCode: (code) => set({ currentCode: code }),
   setExtraFiles: (extraFiles) => set({ extraFiles }),
   setRenderMode: (mode) => set({ renderMode: mode }),
@@ -90,7 +128,7 @@ export const useAppStore = create<AppState>()(
     {
       name: "genview-app-store",
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ model: s.model }),
+      partialize: () => ({}), // No persist: config comes from conversation
     }
   )
 );

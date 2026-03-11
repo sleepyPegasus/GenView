@@ -1,7 +1,7 @@
 export interface ParsedContent {
   text: string;
   codeBlocks: {
-    language: "tsx" | "mermaid";
+    language: "tsx" | "mermaid" | "python";
     code: string;
     /** Optional filename for multi-file: ```tsx:utils.ts */
     filename?: string;
@@ -14,14 +14,14 @@ export interface ParsedContent {
  * Supports multi-file: ```tsx:utils.ts or ```tsx:components/Chart.tsx
  */
 export function parseResponse(content: string): ParsedContent {
-  // Match ```tsx:filename or ```tsx (default) or ```mermaid
-  const codeBlockRegex = /```(tsx|mermaid)(?::([^\n]+))?\s*\n([\s\S]*?)```/g;
+  // Match ```tsx:filename or ```tsx (default) or ```mermaid or ```python
+  const codeBlockRegex = /```(tsx|mermaid|python)(?::([^\n]+))?\s*\n([\s\S]*?)```/g;
   const codeBlocks: ParsedContent["codeBlocks"] = [];
   let text = content;
 
   let match;
   while ((match = codeBlockRegex.exec(content)) !== null) {
-    const language = match[1] as "tsx" | "mermaid";
+    const language = match[1] as "tsx" | "mermaid" | "python";
     const filename = match[2]?.trim();
     const code = match[3].trim();
     if (code.length > 0) {
@@ -30,7 +30,7 @@ export function parseResponse(content: string): ParsedContent {
   }
 
   // Remove code blocks from text to keep only the narrative
-  text = content.replace(/```(tsx|mermaid)(?::[^\n]+)?\s*\n[\s\S]*?```/g, "").trim();
+  text = content.replace(/```(tsx|mermaid|python)(?::[^\n]+)?\s*\n[\s\S]*?```/g, "").trim();
 
   return { text, codeBlocks };
 }
@@ -40,11 +40,11 @@ export function parseResponse(content: string): ParsedContent {
  * Used for debouncing rendering during streaming.
  */
 export function hasCompleteCodeBlock(content: string): boolean {
-  const openBlocks = (content.match(/```(tsx|mermaid)/g) || []).length;
+  const openBlocks = (content.match(/```(tsx|mermaid|python)/g) || []).length;
   const closeBlocks = (content.match(/```\s*$/gm) || []).length;
   // Count ``` that appear after a code block opening
   // A more reliable approach: count paired blocks
-  const fullBlockRegex = /```(tsx|mermaid)\s*\n[\s\S]*?```/g;
+  const fullBlockRegex = /```(tsx|mermaid|python)\s*\n[\s\S]*?```/g;
   const fullBlocks = (content.match(fullBlockRegex) || []).length;
   return fullBlocks > 0 && fullBlocks >= openBlocks;
 }
@@ -55,7 +55,7 @@ export function hasCompleteCodeBlock(content: string): boolean {
  */
 export function extractLatestCodeBlock(
   content: string,
-  language: "tsx" | "mermaid"
+  language: "tsx" | "mermaid" | "python"
 ): string | null {
   const regex = new RegExp(
     "```" + language + "\\s*\\n([\\s\\S]*?)(?:```|$)",

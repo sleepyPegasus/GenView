@@ -24,17 +24,33 @@
   --color-foreground: var(--gen-foreground);
 }
 
+html,
+body {
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 body {
   background: var(--gen-background);
   color: var(--gen-foreground);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   overflow: hidden;
+  margin: 0;
 }
 
 /* Sandpack wrapper must fill available height so the code editor / preview
    iframe get a constrained height and can scroll / render properly. */
 .sp-wrapper {
   height: 100% !important;
+  min-height: 0 !important;
+}
+
+/* Sandpack 预览 iframe 自适应浏览器高度 */
+.sp-preview-container,
+.sp-preview iframe {
+  height: 100% !important;
+  min-height: 0 !important;
 }
 
 /* Sandpack 代码区域滚动修复：Layout 和 Editor 占满高度并启用内部滚动 */
@@ -49,6 +65,19 @@ body {
   height: 100% !important;
   min-height: 0 !important;
   overflow: auto !important;
+}
+
+/* 页面预览模态框内的 Sandpack 占满高度 */
+.gen-page-preview-modal .sp-wrapper,
+.gen-page-preview-modal .gen-sandpack-layout,
+.gen-page-preview-modal [class*="sp-preview"] {
+  height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 !important;
+}
+
+.gen-page-preview-modal iframe {
+  min-height: 100% !important;
 }
 
 /* Scrollbar styling */

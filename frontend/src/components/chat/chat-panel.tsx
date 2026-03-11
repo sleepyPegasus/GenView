@@ -8,10 +8,11 @@ import {
   extractLatestCodeBlock,
   extractAllTsxBlocks,
 } from "@/lib/code-parser";
-import { listMessages, ensureProjectAndConversation, updateConversation } from "@/lib/api";
-import { SettingsPanel } from "./settings-panel";
+import { listMessages, ensureProjectAndConversation, updateConversation, updateProject, getConversation, getProject, deleteMessage } from "@/lib/api";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { ModelSelector } from "@/components/ui/model-selector";
+import { Select } from "@/components/ui/select";
 import {
   Send,
   Bot,
@@ -24,9 +25,13 @@ import {
   Circle,
   Zap,
   Copy,
+  Quote,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface ChatMessage {
   id: string;
@@ -36,6 +41,7 @@ interface ChatMessage {
   steps?: StepInfo[];
   progress?: number;
   tokenCount?: number;
+  inputTokenCount?: number;
   elapsed?: number;
 }
 
@@ -65,11 +71,23 @@ export function ChatPanel() {
     navLayout,
     theme,
     model,
+    conversationMode,
     currentCode,
     projectId,
     conversationId,
     setProjectId,
     setConversationId,
+    setAppName,
+    setLogoUrl,
+    setNavLayout,
+    setTheme,
+    setCustomTheme,
+    setModel,
+    setConversationMode,
+    setNavMenuItems,
+    setNavBackgroundColor,
+    setAppNameFontSize,
+    setAppNameColor,
     invalidateConversationList,
     setCurrentCode,
     setExtraFiles,
@@ -112,9 +130,9 @@ export function ChatPanel() {
     return () => { cancelled = true; };
   }, [conversationId]);
 
-  // During streaming, attempt to parse and preview code
+  // During streaming, attempt to parse and preview code (only in Agent mode)
   useEffect(() => {
-    if (!isStreaming || messages.length === 0) return;
+    if (conversationMode !== "agent" || !isStreaming || messages.length === 0) return;
     const lastMsg = messages[messages.length - 1];
     if (lastMsg.role !== "assistant" || !lastMsg.content) return;
 
@@ -131,15 +149,27 @@ export function ChatPanel() {
       return;
     }
 
+    const pythonCode = extractLatestCodeBlock(content, "python");
+    if (pythonCode && pythonCode.length > 20) {
+      setCurrentCode(pythonCode);
+      setExtraFiles({});
+      setRenderMode("python");
+      return;
+    }
+
     if (hasCompleteCodeBlock(content)) {
       const mermaidCode = extractLatestCodeBlock(content, "mermaid");
       if (mermaidCode) {
         setCurrentCode(mermaidCode);
         setExtraFiles({});
         setRenderMode("mermaid");
+      } else if (pythonCode) {
+        setCurrentCode(pythonCode);
+        setExtraFiles({});
+        setRenderMode("python");
       }
     }
-  }, [messages, isStreaming, setCurrentCode, setExtraFiles, setRenderMode]);
+  }, [conversationMode, messages, isStreaming, setCurrentCode, setExtraFiles, setRenderMode]);
 
   const handleSSEEvent = useCallback(
     (assistantId: string, eventType: string, data: Record<string, unknown>) => {
@@ -183,6 +213,9 @@ export function ChatPanel() {
             case "progress":
               updated.progress = data.percent as number;
               break;
+            case "input_tokens":
+              updated.inputTokenCount = data.prompt_token_count as number;
+              break;
             case "done":
               updated.progress = 100;
               updated.tokenCount = data.token_count as number;
@@ -209,11 +242,12 @@ export function ChatPanel() {
   );
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, options?: { messagesOverride?: ChatMessage[] }) => {
       let cid = conversationId;
+      const baseMessages = options?.messagesOverride ?? messages;
       if (!cid || !projectId) {
         try {
-          const { projectId: pid, conversationId: convId } = await ensureProjectAndConversation({
+          const { projectId: pid, conversationId: convId, conversation: conv } = await ensureProjectAndConversation({
             appName,
             logoUrl,
             navLayout,
@@ -225,6 +259,44 @@ export function ChatPanel() {
           setConversationId(convId);
           cid = convId;
           skipLoadForConvIdRef.current = convId;
+          const defaultNavMenuItems = [
+            { label: "Dashboard", icon: "LayoutDashboard" },
+            { label: "Analytics", icon: "BarChart" },
+            { label: "Settings", icon: "Settings" },
+          ];
+          const applyProjectConfig = (p: import("@/lib/api").Project) => {
+            setAppName(p.name ?? "GenView Dashboard");
+            setLogoUrl(p.logo_url ?? "");
+            setNavLayout((p.nav_layout ?? "side") as "top" | "side");
+            setTheme((p.theme ?? "modern-b2b") as "modern-b2b" | "dark-dashboard" | "steel-metallurgy" | "wind-energy");
+            setCustomTheme((p.custom_theme as unknown as import("@/lib/themes").ThemeTokens) ?? null);
+            setModel(p.model ?? "google/gemini-3.1-pro-preview");
+            setConversationMode((p.conversation_mode === "plan" ? "plan" : "agent"));
+            setNavBackgroundColor(p.nav_background_color ?? null);
+            setAppNameFontSize(p.app_name_font_size ?? null);
+            setAppNameColor(p.app_name_color ?? null);
+            const baseItems = (p.nav_menu_items?.length ? p.nav_menu_items : defaultNavMenuItems).map(({ label, icon }) => ({
+              label,
+              icon: icon ?? undefined,
+            }));
+            setNavMenuItems(baseItems);
+          };
+          const applyConversationNavMenu = (c: import("@/lib/api").Conversation, p: import("@/lib/api").Project) => {
+            const baseItems = (p.nav_menu_items?.length ? p.nav_menu_items : defaultNavMenuItems).map(({ label, icon }) => ({
+              label,
+              icon: icon ?? undefined,
+            }));
+            const convItems = c.nav_menu_items ?? [];
+            const selectedIdx = convItems.findIndex((it) => it.selected);
+            const idx = selectedIdx >= 0 && selectedIdx < baseItems.length ? selectedIdx : 0;
+            setNavMenuItems(baseItems.map((it, i) => ({ ...it, selected: i === idx })));
+          };
+          (async () => {
+            const proj = await getProject(pid);
+            applyProjectConfig(proj);
+            const c = conv ?? await getConversation(convId);
+            applyConversationNavMenu(c, proj);
+          })();
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Unknown error";
           toast.error("Failed to create session", { description: msg });
@@ -261,18 +333,19 @@ export function ChatPanel() {
       setIsStreaming(true);
       useAppStore.getState().setIsStreaming(true);
 
-      // First message: use it as conversation title
-      if (messages.length === 0 && cid) {
-        const title = text.slice(0, 50).trim() || "New Conversation";
+      // First message: use first 7 chars as conversation title
+      if (baseMessages.length === 0 && cid) {
+        const title = text.slice(0, 7).trim() || "New Conversation";
         updateConversation(cid, { title }).catch(() => {}).finally(() => invalidateConversationList());
       }
 
       const controller = new AbortController();
       abortRef.current = controller;
+      const requestMode = conversationMode;
 
       try {
         // Build messages payload matching the backend ChatRequest schema
-        const allMessages = [...messages, userMsg].map((m) => ({
+        const allMessages = [...baseMessages, userMsg].map((m) => ({
           role: m.role,
           parts: [{ type: "text", text: m.content }],
         }));
@@ -290,6 +363,7 @@ export function ChatPanel() {
             nav_layout: navLayout,
             theme,
             model,
+            conversation_mode: conversationMode,
             current_code: currentCode,
             conversation_id: cid,
           }),
@@ -354,31 +428,52 @@ export function ChatPanel() {
           }
         }
 
-        // After stream completes, extract code for canvas
-        setMessages((prev) => {
-          const last = prev.find((m) => m.id === assistantId);
-          if (last?.content) {
-            const parsed = parseResponse(last.content);
-            if (parsed.codeBlocks.length > 0) {
-              const lastBlock = parsed.codeBlocks[parsed.codeBlocks.length - 1];
-              if (lastBlock.language === "tsx") {
-                const allFiles = extractAllTsxBlocks(last.content);
-                const mainCode = allFiles["/DashboardContent.tsx"] ?? lastBlock.code;
-                setCurrentCode(mainCode);
-                const { "/DashboardContent.tsx": _d, ...rest } = allFiles;
-                setExtraFiles(rest);
-              } else {
-                setCurrentCode(lastBlock.code);
-                setExtraFiles({});
+        // After stream completes, extract code for canvas (only in Agent mode)
+        if (requestMode === "agent") {
+          setMessages((prev) => {
+            const last = prev.find((m) => m.id === assistantId);
+            if (last?.content) {
+              const parsed = parseResponse(last.content);
+              if (parsed.codeBlocks.length > 0) {
+                const lastBlock = parsed.codeBlocks[parsed.codeBlocks.length - 1];
+                if (lastBlock.language === "tsx") {
+                  const allFiles = extractAllTsxBlocks(last.content);
+                  const mainCode = allFiles["/DashboardContent.tsx"] ?? lastBlock.code;
+                  setCurrentCode(mainCode);
+                  const { "/DashboardContent.tsx": _d, ...rest } = allFiles;
+                  setExtraFiles(rest);
+                  setRenderMode("sandpack");
+                } else if (lastBlock.language === "python") {
+                  setCurrentCode(lastBlock.code);
+                  setExtraFiles({});
+                  setRenderMode("python");
+                } else {
+                  setCurrentCode(lastBlock.code);
+                  setExtraFiles({});
+                  setRenderMode("mermaid");
+                }
               }
-              setRenderMode(lastBlock.language === "tsx" ? "sandpack" : "mermaid");
             }
-          }
-          return prev;
-        });
+            return prev;
+          });
+        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
-          // User stopped generation
+          // User stopped generation - 将 active/loading 步骤标记为 done，避免 "AI is reasoning" 一直转圈
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId && m.steps?.length
+                ? {
+                    ...m,
+                    steps: m.steps.map((s) =>
+                      s.status === "active" || s.status === "loading"
+                        ? { ...s, status: "done" as const }
+                        : s
+                    ),
+                  }
+                : m
+            )
+          );
         } else {
           const msg = err instanceof Error ? err.message : "Connection error";
           toast.error("Connection failed", {
@@ -402,7 +497,7 @@ export function ChatPanel() {
         abortRef.current = null;
       }
     },
-    [messages, appName, logoUrl, navLayout, theme, model, currentCode, projectId, conversationId, setProjectId, setConversationId, setCurrentCode, setExtraFiles, setRenderMode, invalidateConversationList]
+    [messages, appName, logoUrl, navLayout, theme, model, conversationMode, currentCode, projectId, conversationId, setProjectId, setConversationId, setAppName, setLogoUrl, setNavLayout, setTheme, setCustomTheme, setModel, setConversationMode, setNavMenuItems, setCurrentCode, setExtraFiles, setRenderMode, invalidateConversationList]
   );
 
   const stopGeneration = useCallback(() => {
@@ -426,8 +521,6 @@ export function ChatPanel() {
 
   return (
     <div className="h-full flex flex-col min-w-0" style={{ background: "var(--gen-card)" }}>
-      <SettingsPanel />
-
       {/* Chat messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
@@ -446,12 +539,64 @@ export function ChatPanel() {
         {messages.map((msg) => {
           if (msg.role === "user") {
             return (
-              <div key={msg.id} className="flex gap-3 justify-end">
-                <div
-                  className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
-                  style={{ background: "var(--gen-primary)", color: "#ffffff" }}
-                >
-                  {msg.content}
+              <div key={msg.id} className="flex gap-3 justify-end group">
+                <div className="flex flex-col items-end gap-1">
+                  <div
+                    className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
+                    style={{ background: "var(--gen-primary)", color: "#ffffff" }}
+                  >
+                    {msg.content}
+                  </div>
+                  <div
+                    className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ color: "var(--gen-muted-fg)" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(msg.content);
+                        toast.success("已复制");
+                      }}
+                      className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                      title="复制"
+                    >
+                      <Copy size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const quoted = "> " + msg.content.split("\n").join("\n> ") + "\n\n";
+                        setInputText((prev) => (prev ? prev + "\n" + quoted : quoted));
+                      }}
+                      className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                      title="引用"
+                    >
+                      <Quote size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!conversationId) return;
+                        try {
+                          await deleteMessage(conversationId, msg.id);
+                          setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+                          toast.success("已删除");
+                        } catch (err) {
+                          const is404 = err instanceof Error && (err.message.includes("404") || err.message.includes("Not Found"));
+                          if (is404) {
+                            setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+                            toast.success("已删除");
+                          } else {
+                            toast.error("删除失败");
+                          }
+                        }
+                      }}
+                      className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                      title="删除"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
@@ -471,7 +616,7 @@ export function ChatPanel() {
           const showProgress = isStreaming && isLastAssistant;
 
           return (
-            <div key={msg.id} className="flex gap-3 justify-start">
+            <div key={msg.id} className="flex gap-3 justify-start group">
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                 style={{ background: "var(--gen-primary)" }}
@@ -479,11 +624,6 @@ export function ChatPanel() {
                 <Bot size={14} className="text-white" />
               </div>
               <div className="max-w-[85%] space-y-2 min-w-0 flex-1">
-                {/* Progress bar */}
-                {showProgress && msg.progress !== undefined && msg.progress < 100 && (
-                  <ProgressBar progress={msg.progress} />
-                )}
-
                 {/* Steps */}
                 {hasSteps && <StepsList steps={msg.steps!} />}
 
@@ -498,10 +638,10 @@ export function ChatPanel() {
                   >
                     {parsed.text && (
                       <div
-                        className="markdown-content [&_p]:mb-2 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_strong]:font-semibold [&_a]:underline [&_a]:text-[var(--gen-primary)] [&_pre]:whitespace-pre-wrap [&_pre]:text-xs [&_pre]:p-2 [&_pre]:rounded [&_pre]:bg-black/10 [&_code]:text-xs [&_code]:bg-black/10 [&_code]:px-1 [&_code]:rounded"
+                        className="markdown-content overflow-x-auto [&_p]:mb-2 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_strong]:font-semibold [&_a]:underline [&_a]:text-[var(--gen-primary)] [&_pre]:whitespace-pre-wrap [&_pre]:text-xs [&_pre]:p-2 [&_pre]:rounded [&_pre]:bg-black/10 [&_code]:text-xs [&_code]:bg-black/10 [&_code]:px-1 [&_code]:rounded [&_table]:w-full [&_table]:border-collapse [&_table]:my-3 [&_th]:border [&_th]:border-[var(--gen-border)] [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold [&_th]:bg-[var(--gen-muted)] [&_td]:border [&_td]:border-[var(--gen-border)] [&_td]:px-3 [&_td]:py-2 [&_tr:hover]:bg-black/5"
                         style={{ color: "var(--gen-foreground)" }}
                       >
-                        <ReactMarkdown>{parsed.text}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{parsed.text}</ReactMarkdown>
                       </div>
                     )}
                     {parsed.codeBlocks.length > 0 && (
@@ -552,29 +692,126 @@ export function ChatPanel() {
                   </div>
                 )}
 
-                {/* Stats (after completion) */}
-                {msg.tokenCount !== undefined && msg.elapsed !== undefined && (
+                {/* Stats (input tokens shown early, output + elapsed after completion) */}
+                {(msg.inputTokenCount !== undefined || msg.tokenCount !== undefined) && (
                   <div
                     className="flex items-center gap-3 text-[10px] px-1"
                     style={{ color: "var(--gen-muted-fg)" }}
                   >
-                    <span className="flex items-center gap-1">
-                      <Zap size={10} />
-                      {msg.tokenCount} tokens
-                    </span>
-                    <span>{msg.elapsed}s</span>
+                    {msg.inputTokenCount !== undefined && (
+                      <span>输入 {msg.inputTokenCount} tokens</span>
+                    )}
+                    {msg.tokenCount !== undefined && (
+                      <span className="flex items-center gap-1">
+                        <Zap size={10} />
+                        输出 {msg.tokenCount} tokens
+                      </span>
+                    )}
+                    {msg.elapsed !== undefined && <span>{msg.elapsed}s</span>}
                   </div>
                 )}
+
+                {/* Message actions */}
+                <div
+                  className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ color: "var(--gen-muted-fg)" }}
+                >
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(msg.content);
+                      toast.success("已复制");
+                    }}
+                    className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                    title="复制"
+                  >
+                    <Copy size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const quoted = "> " + msg.content.split("\n").join("\n> ") + "\n\n";
+                      setInputText((prev) => (prev ? prev + "\n" + quoted : quoted));
+                    }}
+                    className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                    title="引用"
+                  >
+                    <Quote size={12} />
+                  </button>
+                  {!showProgress && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!conversationId || isStreaming) return;
+                        const idx = messages.findIndex((m) => m.id === msg.id);
+                        const prevUser = [...messages].slice(0, idx).reverse().find((m) => m.role === "user");
+                        if (!prevUser) {
+                          toast.error("无法重新生成");
+                          return;
+                        }
+                        try {
+                          await deleteMessage(conversationId, msg.id);
+                          const filtered = messages.filter((m) => m.id !== msg.id);
+                          setMessages(filtered);
+                          await sendMessage(prevUser.content, { messagesOverride: filtered });
+                        } catch (err) {
+                          const is404 = err instanceof Error && (err.message.includes("404") || err.message.includes("Not Found"));
+                          if (is404) {
+                            const filtered = messages.filter((m) => m.id !== msg.id);
+                            setMessages(filtered);
+                            await sendMessage(prevUser.content, { messagesOverride: filtered });
+                          } else {
+                            toast.error(err instanceof Error ? err.message : "重新生成失败");
+                          }
+                        }
+                      }}
+                      className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                      title="重新生成"
+                    >
+                      <RotateCcw size={12} />
+                    </button>
+                  )}
+                  {!showProgress && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!conversationId) return;
+                        try {
+                          await deleteMessage(conversationId, msg.id);
+                          setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+                          toast.success("已删除");
+                        } catch (err) {
+                          const is404 = err instanceof Error && (err.message.includes("404") || err.message.includes("Not Found"));
+                          if (is404) {
+                            setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+                            toast.success("已删除");
+                          } else {
+                            toast.error("删除失败");
+                          }
+                        }
+                      }}
+                      className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                      title="删除"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );
         })}
 
         {isStreaming && (
-          <div className="flex items-center gap-2 pl-10" style={{ color: "var(--gen-muted-fg)" }}>
+          <div className="flex flex-col gap-2 pl-10" style={{ color: "var(--gen-muted-fg)" }}>
+            {(() => {
+              const lastMsg = messages[messages.length - 1];
+              const progress = lastMsg?.role === "assistant" ? (lastMsg?.progress ?? 0) : 0;
+              return progress < 100 ? <ProgressBar progress={progress} /> : null;
+            })()}
             <button
               onClick={stopGeneration}
-              className="text-xs px-2.5 py-1 rounded-md transition-colors"
+              className="text-xs px-2.5 py-1 rounded-md transition-colors self-start"
               style={{
                 border: "1px solid var(--gen-border)",
                 color: "var(--gen-foreground)",
@@ -591,26 +828,58 @@ export function ChatPanel() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area */}
+      {/* Input area - Cursor style: input on top, Mode + Model below left */}
       <div className="p-3 flex-shrink-0" style={{ borderTop: "1px solid var(--gen-border)" }}>
-        <form onSubmit={onSubmit} className="flex gap-2">
-          <Textarea
-            data-testid="chat-input"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Describe the UI you want to generate..."
-            className="min-h-[44px] max-h-[120px] resize-none flex-1"
-            rows={1}
-          />
-          <Button
-            data-testid="chat-send"
-            type="submit"
-            size="icon"
-            disabled={isStreaming || !inputText.trim()}
-          >
-            <Send size={16} />
-          </Button>
+        <form onSubmit={onSubmit} className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <Textarea
+              data-testid="chat-input"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                conversationMode === "plan"
+                  ? "与 AI 对话、头脑风暴、激发灵感..."
+                  : "Describe the UI you want to generate..."
+              }
+              className="min-h-[88px] max-h-[240px] resize-none flex-1"
+              rows={2}
+            />
+            <Button
+              data-testid="chat-send"
+              type="submit"
+              size="icon"
+              disabled={isStreaming || !inputText.trim()}
+            >
+              <Send size={16} />
+            </Button>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Select
+                options={[
+                  { value: "plan", label: "Plan" },
+                  { value: "agent", label: "Agent" },
+                ]}
+                value={conversationMode}
+                onChange={(e) => {
+                  const v = e.target.value as "plan" | "agent";
+                  setConversationMode(v);
+                  if (projectId) updateProject(projectId, { conversation_mode: v }).catch(() => {});
+                }}
+                className="h-8 w-[90px] text-xs"
+              />
+              <div className="w-[160px]">
+                <ModelSelector
+                  value={model}
+                  onChange={(v) => {
+                    setModel(v);
+                    if (projectId) updateProject(projectId, { model: v }).catch(() => {});
+                  }}
+                />
+              </div>
+            </div>
+          </div>
         </form>
       </div>
     </div>

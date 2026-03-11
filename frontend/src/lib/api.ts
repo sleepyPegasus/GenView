@@ -2,7 +2,7 @@
  * API client for projects, conversations, and messages.
  * Uses NEXT_PUBLIC_BACKEND_URL when available to avoid proxy buffering.
  */
-function getBaseUrl(): string {
+export function getBaseUrl(): string {
   if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_BACKEND_URL) {
     return process.env.NEXT_PUBLIC_BACKEND_URL;
   }
@@ -15,14 +15,58 @@ export interface Project {
   logo_url: string;
   nav_layout: string;
   theme: string;
+  custom_theme?: Record<string, unknown> | null;
+  model?: string;
+  conversation_mode?: string;
+  nav_background_color?: string | null;
+  app_name_font_size?: string | null;
+  app_name_color?: string | null;
+  nav_config?: {
+    items?: { label: string; pageId: string }[];
+    top?: { pageId: string; label: string }[];
+    side?: { pageId: string; label: string }[];
+  } | null;
+  nav_menu_items?: NavMenuItem[] | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Page {
+  id: string;
+  project_id: string;
+  name: string;
+  nav_label: string;
+  code_block: string;
+  code_language: string;
+  extra_files?: Record<string, string> | null;
+  source_conversation_id?: string | null;
+  source_message_id?: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NavMenuItem {
+  label: string;
+  icon?: string;
+  selected?: boolean;
 }
 
 export interface Conversation {
   id: string;
   title: string;
   project_id: string;
+  app_name: string;
+  logo_url: string;
+  nav_layout: string;
+  theme: string;
+  custom_theme?: Record<string, unknown> | null;
+  model: string;
+  conversation_mode?: string;
+  nav_background_color?: string | null;
+  app_name_font_size?: string | null;
+  app_name_color?: string | null;
+  nav_menu_items?: NavMenuItem[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -71,7 +115,24 @@ export async function createProject(data: {
 
 export async function updateProject(
   projectId: string,
-  data: { name?: string; logo_url?: string; nav_layout?: string; theme?: string }
+  data: {
+    name?: string;
+    logo_url?: string;
+    nav_layout?: string;
+    theme?: string;
+    custom_theme?: Record<string, unknown> | null;
+    model?: string;
+    conversation_mode?: string;
+    nav_background_color?: string | null;
+    app_name_font_size?: string | null;
+    app_name_color?: string | null;
+    nav_config?: {
+      items?: { label: string; pageId: string }[];
+      top?: { pageId: string; label: string }[];
+      side?: { pageId: string; label: string }[];
+    } | null;
+    nav_menu_items?: NavMenuItem[] | null;
+  }
 ): Promise<Project> {
   const res = await fetch(
     `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}`,
@@ -83,6 +144,73 @@ export async function updateProject(
   );
   if (!res.ok) throw new Error(`Failed to update project: ${res.statusText}`);
   return res.json();
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await fetch(`${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Failed to delete project: ${res.statusText}`);
+}
+
+export async function listPages(projectId: string): Promise<Page[]> {
+  const res = await fetch(`${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/pages`);
+  if (!res.ok) throw new Error(`Failed to list pages: ${res.statusText}`);
+  return res.json();
+}
+
+export async function getPage(projectId: string, pageId: string): Promise<Page> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/pages/${encodeURIComponent(pageId)}`
+  );
+  if (!res.ok) throw new Error(`Failed to get page: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createPage(
+  projectId: string,
+  data: {
+    name: string;
+    nav_label?: string;
+    code_block: string;
+    code_language: string;
+    extra_files?: Record<string, string>;
+    source_conversation_id?: string;
+    source_message_id?: string;
+  }
+): Promise<Page> {
+  const res = await fetch(`${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/pages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to create page: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updatePage(
+  projectId: string,
+  pageId: string,
+  data: { name?: string; nav_label?: string; code_block?: string; extra_files?: Record<string, string>; sort_order?: number }
+): Promise<Page> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/pages/${encodeURIComponent(pageId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }
+  );
+  if (!res.ok) throw new Error(`Failed to update page: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deletePage(projectId: string, pageId: string): Promise<void> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/pages/${encodeURIComponent(pageId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) throw new Error(`Failed to delete page: ${res.statusText}`);
 }
 
 export async function listConversations(projectId: string): Promise<Conversation[]> {
@@ -113,9 +241,30 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return res.json();
 }
 
+export async function deleteMessage(conversationId: string, messageId: string): Promise<void> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) throw new Error(`Failed to delete message: ${res.statusText}`);
+}
+
 export async function updateConversation(
   conversationId: string,
-  data: { title: string }
+  data: {
+    title?: string;
+    app_name?: string;
+    logo_url?: string;
+    nav_layout?: string;
+    theme?: string;
+    custom_theme?: Record<string, unknown> | null;
+    model?: string;
+    conversation_mode?: string;
+    nav_background_color?: string | null;
+    app_name_font_size?: string | null;
+    app_name_color?: string | null;
+    nav_menu_items?: NavMenuItem[] | null;
+  }
 ): Promise<Conversation> {
   const res = await fetch(
     `${getBaseUrl()}/api/conversations/${encodeURIComponent(conversationId)}`,
@@ -138,7 +287,8 @@ export async function deleteConversation(conversationId: string): Promise<void> 
 
 /**
  * Ensure a project and conversation exist. Creates them if needed.
- * Returns { projectId, conversationId } for the caller to set in store.
+ * Returns { projectId, conversationId, conversation? } for the caller to set in store.
+ * When a new conversation is created, conversation is returned (with config inherited from project).
  */
 export async function ensureProjectAndConversation(settings: {
   appName: string;
@@ -147,9 +297,10 @@ export async function ensureProjectAndConversation(settings: {
   theme: string;
   existingProjectId?: string | null;
   existingConversationId?: string | null;
-}): Promise<{ projectId: string; conversationId: string }> {
+}): Promise<{ projectId: string; conversationId: string; conversation?: Conversation }> {
   let projectId = settings.existingProjectId;
   let conversationId = settings.existingConversationId;
+  let conversation: Conversation | undefined;
 
   if (!projectId) {
     const projects = await listProjects();
@@ -169,7 +320,8 @@ export async function ensureProjectAndConversation(settings: {
   if (!conversationId) {
     const created = await createConversation(projectId!, "New Conversation");
     conversationId = created.id;
+    conversation = created;
   }
 
-  return { projectId, conversationId };
+  return { projectId, conversationId, conversation };
 }
