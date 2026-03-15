@@ -29,6 +29,7 @@ export interface Project {
   nav_menu_items?: NavMenuItem[] | null;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 export interface Page {
@@ -117,8 +118,11 @@ export interface Message {
   created_at: string;
 }
 
-export async function listProjects(): Promise<Project[]> {
-  const res = await fetch(`${getBaseUrl()}/api/projects`);
+export async function listProjects(options?: { deleted?: boolean }): Promise<Project[]> {
+  const params = new URLSearchParams();
+  if (options?.deleted) params.set("deleted", "true");
+  const url = `${getBaseUrl()}/api/projects${params.toString() ? `?${params}` : ""}`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to list projects: ${res.statusText}`);
   return res.json();
 }
@@ -187,6 +191,23 @@ export async function deleteProject(projectId: string): Promise<void> {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`Failed to delete project: ${res.statusText}`);
+}
+
+export async function restoreProject(projectId: string): Promise<Project> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/restore`,
+    { method: "POST" }
+  );
+  if (!res.ok) throw new Error(`Failed to restore project: ${res.statusText}`);
+  return res.json();
+}
+
+export async function purgeProject(projectId: string): Promise<void> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/purge`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) throw new Error(`Failed to purge project: ${res.statusText}`);
 }
 
 export async function listPages(projectId: string): Promise<Page[]> {

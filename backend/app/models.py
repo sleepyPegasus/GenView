@@ -36,6 +36,9 @@ class Project(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    deleted_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
 
     conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
