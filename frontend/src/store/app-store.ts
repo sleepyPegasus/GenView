@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { ThemeTokens } from "@/lib/themes";
+import type { NavMenuItem } from "@/lib/api";
 
 export type NavLayout = "top" | "side";
 
@@ -39,8 +40,8 @@ export interface AppState {
   /** Conversation mode: plan = 对话/灵感, agent = 生成页面 */
   conversationMode: "plan" | "agent";
 
-  /** Nav menu items for chat preview layout: [{ label, icon?, selected? }] */
-  navMenuItems: { label: string; icon?: string; selected?: boolean }[];
+  /** Nav menu items for chat preview layout; supports children for secondary menu */
+  navMenuItems: NavMenuItem[];
 
   /** Navigation background color (overrides theme sidebarBg); e.g. #1e293b */
   navBackgroundColor: string | null;
@@ -68,7 +69,7 @@ export interface AppState {
   setCustomTheme: (tokens: ThemeTokens | null) => void;
   setModel: (model: string) => void;
   setConversationMode: (mode: "plan" | "agent") => void;
-  setNavMenuItems: (items: { label: string; icon?: string; selected?: boolean }[]) => void;
+  setNavMenuItems: (items: NavMenuItem[]) => void;
   setNavBackgroundColor: (color: string | null) => void;
   setCurrentCode: (code: string) => void;
   setExtraFiles: (files: Record<string, string>) => void;

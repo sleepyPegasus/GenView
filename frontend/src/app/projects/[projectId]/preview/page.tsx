@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { SandpackProvider, SandpackLayout, SandpackPreview } from "@codesandbox/sandpack-react";
-import { getProject, listPages } from "@/lib/api";
+import { getProject, listPages, flattenNavConfigItems, type NavConfigItem } from "@/lib/api";
 import { generateMultiPageSandpackFiles } from "@/lib/sandpack-files";
 import { ThemeInjector } from "@/components/theme-injector";
 import { ArrowLeft, Loader2, Maximize2, Minimize2 } from "lucide-react";
@@ -58,7 +58,7 @@ export default function SystemPreviewPage() {
   }
 
   const cfg = project.nav_config as {
-    items?: { label: string; pageId: string }[];
+    items?: NavConfigItem[];
     top?: { pageId: string; label: string }[];
     side?: { pageId: string; label: string }[];
   } | undefined;
@@ -66,7 +66,7 @@ export default function SystemPreviewPage() {
 
   let allItems: { pageId: string; label: string }[];
   if (cfg?.items && Array.isArray(cfg.items)) {
-    allItems = cfg.items.filter((i) => i.pageId).map((i) => ({ pageId: i.pageId, label: i.label }));
+    allItems = flattenNavConfigItems(cfg.items);
   } else {
     const topItems = cfg?.top ?? [];
     const sideItems = cfg?.side ?? [];

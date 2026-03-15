@@ -17,12 +17,19 @@ DEFAULT_NAV_MENU_ITEMS = [
 
 
 def _nav_config_to_menu_items(nav_config: dict | None) -> list[dict]:
-    """Convert project nav_config (pageId/label) to conversation nav_menu_items (label/icon)."""
+    """Convert project nav_config (pageId/label) to conversation nav_menu_items (label/icon/children)."""
     if not nav_config:
         return DEFAULT_NAV_MENU_ITEMS
     items = nav_config.get("items")
     if items:
-        return [{"label": it.get("label", ""), "icon": it.get("icon", ""), "selected": i == 0} for i, it in enumerate(items)]
+        result = []
+        for i, it in enumerate(items):
+            entry = {"label": it.get("label", ""), "icon": it.get("icon", ""), "selected": i == 0}
+            children = it.get("children")
+            if children:
+                entry["children"] = [{"label": c.get("label", ""), "icon": c.get("icon", "")} for c in children]
+            result.append(entry)
+        return result
     side = nav_config.get("side") or []
     top = nav_config.get("top") or []
     items = side if side else top
@@ -32,13 +39,28 @@ def _nav_config_to_menu_items(nav_config: dict | None) -> list[dict]:
 
 
 def _project_menu_items_to_conv(project_items: list[dict] | None) -> list[dict]:
-    """Use project nav_menu_items, add selected to first item for new conversation."""
+    """Use project nav_menu_items, add selected to first item for new conversation. Preserves children."""
     if not project_items:
         return DEFAULT_NAV_MENU_ITEMS
-    return [
-        {**{k: v for k, v in it.items() if k != "selected"}, "selected": i == 0}
-        for i, it in enumerate(project_items)
-    ]
+    result = []
+    first = True
+    for it in project_items:
+        entry = {k: v for k, v in it.items() if k != "selected"}
+        children = entry.get("children")
+        if children:
+            entry["selected"] = False
+            entry["children"] = [
+                {**c, "selected": first and i == 0} if isinstance(c, dict) else c
+                for i, c in enumerate(children)
+            ]
+            if first:
+                first = False
+        else:
+            entry["selected"] = first
+            if first:
+                first = False
+        result.append(entry)
+    return result
 
 
 @router.get("", response_model=list[ConversationOut])

@@ -2,10 +2,17 @@ import type { IndustryTheme, NavLayout } from "@/store/app-store";
 import type { ThemeTokens } from "./themes";
 import { themeMap } from "./themes";
 
+export interface NavMenuChild {
+  label: string;
+  icon?: string;
+  selected?: boolean;
+}
+
 export interface NavMenuItem {
   label: string;
   icon?: string;
   selected?: boolean;
+  children?: NavMenuChild[];
 }
 
 export function generateSandpackFiles(opts: {
@@ -38,7 +45,12 @@ export function generateSandpackFiles(opts: {
         { label: "Settings", icon: "Settings" },
       ];
 
-  const iconNames = [...new Set(navItems.map((i) => i.icon).filter((n): n is string => !!n))];
+  const iconNames = [
+    ...new Set([
+      ...navItems.map((i) => i.icon),
+      ...navItems.flatMap((i) => (i.children ?? []).map((c) => c.icon)),
+    ].filter((n): n is string => !!n)),
+  ];
   const iconImport =
     iconNames.length > 0
       ? `import { ${iconNames.join(", ")} } from "lucide-react";\nconst ICON_MAP = { ${iconNames.join(", ")} };`
@@ -127,8 +139,34 @@ export default function Layout({ children }) {
           <span style={{ fontWeight: 600, fontSize: "${appNameFontSize}", color: "${appNameColor}" }}>${opts.appName}</span>
         </div>
         <nav style={{ padding: "12px 8px", flex: 1 }}>
-          {${JSON.stringify(navItems)}.map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", borderRadius: 6, fontSize: 13, marginBottom: 4, cursor: "pointer", background: (item.selected ?? (i === 0)) ? "rgba(255,255,255,0.08)" : "transparent", opacity: (item.selected ?? (i === 0)) ? 1 : 0.7 }}>
+          {${JSON.stringify(
+    navItems.flatMap((item, i) => {
+      const hasChildren = (item.children?.length ?? 0) > 0;
+      const flat: { label: string; icon?: string; selected: boolean; indent: boolean }[] = [];
+      if (!hasChildren) {
+        flat.push({
+          label: item.label,
+          icon: item.icon,
+          selected: item.selected ?? i === 0,
+          indent: false,
+        });
+      } else {
+        flat.push({ label: item.label, icon: item.icon, selected: false, indent: false });
+        const children = item.children ?? [];
+        const hasSelectedChild = children.some((c) => c.selected);
+        children.forEach((ch, j) => {
+          flat.push({
+            label: ch.label,
+            icon: ch.icon,
+            selected: ch.selected ?? (!hasSelectedChild && j === 0),
+            indent: true,
+          });
+        });
+      }
+      return flat;
+    }).flat()
+  )}.map((item, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: item.indent ? "6px 12px 6px 28px" : "8px 12px", marginBottom: 4, borderRadius: 6, fontSize: 13, cursor: "pointer", background: item.selected ? "rgba(255,255,255,0.08)" : "transparent", opacity: item.selected ? 1 : 0.7 }}>
               {item.icon && ICON_MAP && ICON_MAP[item.icon] ? React.createElement(ICON_MAP[item.icon], { size: 16 }) : null}
               <span>{item.label}</span>
             </div>
@@ -143,13 +181,15 @@ export default function Layout({ children }) {
   );
 }
 ` : `
-import React from "react";
+import React, { useState } from "react";
 ${iconImport}
 
+const NAV_ITEMS = ${JSON.stringify(navItems)};
+
 export default function Layout({ children }) {
+  const [openIdx, setOpenIdx] = useState(-1);
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
-      {/* Top Navigation */}
       <header style={{
         height: "56px",
         background: "var(--sidebar-bg)",
@@ -165,16 +205,40 @@ export default function Layout({ children }) {
           ${opts.logoUrl ? `<img src="${opts.logoUrl}" alt="logo" style={{ width: 28, height: 28, borderRadius: 4 }} />` : `<div style={{ width: 28, height: 28, borderRadius: 4, background: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--primary-foreground)", fontWeight: 700, fontSize: 14 }}>${opts.appName.charAt(0)}</div>`}
           <span style={{ fontWeight: 600, fontSize: "${appNameFontSize}", color: "${appNameColor}" }}>${opts.appName}</span>
         </div>
-        <nav style={{ display: "flex", gap: "4px", flex: 1 }}>
-          {${JSON.stringify(navItems)}.map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 14px", borderRadius: 6, fontSize: 13, cursor: "pointer", background: (item.selected ?? (i === 0)) ? "rgba(255,255,255,0.08)" : "transparent", opacity: (item.selected ?? (i === 0)) ? 1 : 0.7 }}>
-              {item.icon && ICON_MAP && ICON_MAP[item.icon] ? React.createElement(ICON_MAP[item.icon], { size: 16 }) : null}
-              <span>{item.label}</span>
-            </div>
-          ))}
+        <nav style={{ display: "flex", gap: "4px", flex: 1, alignItems: "center" }}>
+          {NAV_ITEMS.map((item, i) => {
+            const hasChildren = item.children && item.children.length > 0;
+            if (!hasChildren) {
+              const sel = item.selected ?? (i === 0);
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 14px", borderRadius: 6, fontSize: 13, cursor: "pointer", background: sel ? "rgba(255,255,255,0.08)" : "transparent", opacity: sel ? 1 : 0.7 }}>
+                  {item.icon && ICON_MAP && ICON_MAP[item.icon] ? React.createElement(ICON_MAP[item.icon], { size: 16 }) : null}
+                  <span>{item.label}</span>
+                </div>
+              );
+            }
+            const isParentActive = (item.children || []).some((c) => c.selected);
+            return (
+              <div key={i} style={{ position: "relative" }} onMouseEnter={() => setOpenIdx(i)} onMouseLeave={() => setOpenIdx(-1)}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 14px", borderRadius: 6, fontSize: 13, cursor: "pointer", background: isParentActive ? "rgba(255,255,255,0.08)" : "transparent", opacity: isParentActive ? 1 : 0.7 }}>
+                  {item.icon && ICON_MAP && ICON_MAP[item.icon] ? React.createElement(ICON_MAP[item.icon], { size: 16 }) : null}
+                  <span>{item.label}</span>
+                </div>
+                {openIdx === i && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, minWidth: 140, background: "var(--sidebar-bg)", border: "1px solid var(--border)", borderRadius: 6, marginTop: 4, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 100 }}>
+                    {(item.children || []).map((ch, j) => (
+                      <div key={j} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 16px", fontSize: 13, cursor: "pointer", background: ch.selected ? "rgba(255,255,255,0.08)" : "transparent", opacity: ch.selected ? 1 : 0.7, borderTop: j === 0 ? "none" : "1px solid rgba(255,255,255,0.06)" }}>
+                        {ch.icon && ICON_MAP && ICON_MAP[ch.icon] ? React.createElement(ICON_MAP[ch.icon], { size: 16 }) : null}
+                        <span>{ch.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
       </header>
-      {/* Main content */}
       <main style={{ flex: 1, overflow: "auto", background: "var(--background)" }}>
         {children}
       </main>

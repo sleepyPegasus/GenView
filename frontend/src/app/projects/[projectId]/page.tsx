@@ -28,7 +28,7 @@ export default function ProjectWorkspace() {
   return (
     <div data-theme={effectiveTheme} className="flex h-screen w-screen overflow-hidden">
       <ThemeInjector />
-      <ProjectSidebar projectIdFromRoute={projectId} initialTab={tabFromUrl === "pages" ? "pages" : undefined} />
+      <ProjectSidebar projectIdFromRoute={projectId} initialTab={tabFromUrl === "resources" || tabFromUrl === "pages" ? "resources" : undefined} />
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Mobile tab bar */}

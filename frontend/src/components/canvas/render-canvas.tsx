@@ -98,7 +98,7 @@ export function RenderCanvas() {
   };
 
   const showSaveToPageCollection =
-    projectId && currentCode && renderMode === "sandpack" && !isStreaming;
+    projectId && currentCode && (renderMode === "sandpack" || renderMode === "mermaid") && !isStreaming;
 
   const handleSaveToPageCollection = async () => {
     if (!projectId || !currentCode || !saveName.trim()) return;
@@ -107,13 +107,13 @@ export function RenderCanvas() {
       const selectedMenuItem = navMenuItems?.find((item) => item.selected);
       await createPage(projectId, {
         name: saveName.trim(),
-        nav_label: selectedMenuItem?.label ?? saveName.trim(),
+        nav_label: renderMode === "sandpack" ? (selectedMenuItem?.label ?? saveName.trim()) : saveName.trim(),
         code_block: currentCode,
-        code_language: "tsx",
-        extra_files: Object.keys(extraFiles).length > 0 ? extraFiles : undefined,
+        code_language: renderMode === "mermaid" ? "mermaid" : "tsx",
+        extra_files: renderMode === "sandpack" && Object.keys(extraFiles).length > 0 ? extraFiles : undefined,
         source_conversation_id: conversationId ?? undefined,
       });
-      toast.success("Saved to page collection");
+      toast.success("Saved to Resources");
       invalidatePagesList();
       setSaveDialogOpen(false);
       setSaveName("");
@@ -195,10 +195,10 @@ export function RenderCanvas() {
                 onClick={() => setSaveDialogOpen(true)}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md transition-colors"
                 style={{ color: "var(--gen-muted-fg)" }}
-                title="Save to page collection"
+                title="Save to Resources"
               >
                 <Save size={13} />
-                保存到页面集
+                保存到 Resources
               </button>
             )}
             <button
@@ -273,7 +273,7 @@ export function RenderCanvas() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-sm font-medium mb-3" style={{ color: "var(--gen-foreground)" }}>
-              保存到页面集
+              保存到 Resources
             </h3>
             <input
               className="w-full px-3 py-2 text-sm rounded border mb-4"

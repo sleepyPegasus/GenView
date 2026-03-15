@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { SandpackProvider, SandpackLayout, SandpackPreview, useSandpack } from "@codesandbox/sandpack-react";
-import { getProject, getPage } from "@/lib/api";
+import { getProject, getPage, flattenNavConfigItems, type NavConfigItem } from "@/lib/api";
 import { generateSandpackFiles } from "@/lib/sandpack-files";
 import { ThemeInjector } from "@/components/theme-injector";
 import { Loader2 } from "lucide-react";
@@ -89,41 +89,54 @@ export default function SinglePagePreview() {
 
   const navLayout = (project.nav_layout ?? "side") as "top" | "side";
 
-  const cfg = project.nav_config as { items?: { label: string; pageId: string }[]; top?: { pageId: string; label: string }[]; side?: { pageId: string; label: string }[] } | null;
+  const cfg = project.nav_config as { items?: NavConfigItem[]; top?: { pageId: string; label: string }[]; side?: { pageId: string; label: string }[] } | null;
   const configItems = (cfg?.items && Array.isArray(cfg.items))
-    ? (cfg.items.filter((i) => i.pageId) as { pageId: string; label: string }[])
+    ? flattenNavConfigItems(cfg.items)
     : ((cfg?.[navLayout] ?? []) as { pageId: string; label: string }[]);
   const defaultItems = [
     { label: "Dashboard", icon: "LayoutDashboard" },
     { label: "Analytics", icon: "BarChart" },
     { label: "Settings", icon: "Settings" },
   ];
+  const menuItems = (project.nav_menu_items ?? defaultItems) as { label: string; icon?: string; children?: { label: string; icon?: string }[] }[];
+  const getIcon = (label: string) => {
+    for (const m of menuItems) {
+      if (m.label === label) return m.icon;
+      const ch = (m.children ?? []).find((c) => c.label === label);
+      if (ch) return ch.icon;
+    }
+    return undefined;
+  };
   const navMenuItems =
     configItems.length > 0
       ? configItems.map((item, i) => {
           const hasMatch = configItems.some((c) => c.pageId === page.id);
           const labelMatchIdx = hasMatch ? -1 : configItems.findIndex((c) => c.label === page.nav_label);
-          const menuItem = (project.nav_menu_items ?? defaultItems).find((m: { label: string }) => m.label === item.label);
           return {
             label: item.label,
-            icon: (menuItem as { icon?: string })?.icon ?? undefined,
+            icon: getIcon(item.label) ?? undefined,
             selected:
               item.pageId === page.id ||
               (!hasMatch && (labelMatchIdx === i || (labelMatchIdx < 0 && i === 0))),
           };
         })
-      : (project.nav_menu_items ?? defaultItems).map((item: { label: string; icon?: string }, i: number) => ({
-          label: item.label,
-          icon: item.icon,
-          selected: item.label === page.nav_label || (i === 0 && !page.nav_label),
-        }));
+      : menuItems.flatMap((item, i) => {
+          const hasChildren = (item.children?.length ?? 0) > 0;
+          if (!hasChildren) {
+            return [{ label: item.label, icon: item.icon ?? undefined, selected: item.label === page.nav_label || (i === 0 && !page.nav_label) }];
+          }
+          return [
+            { label: item.label, icon: item.icon ?? undefined, selected: false },
+            ...(item.children ?? []).map((ch) => ({ label: ch.label, icon: ch.icon ?? undefined, selected: ch.label === page.nav_label })),
+          ];
+        });
 
   const files = generateSandpackFiles({
     appName: project.name,
     logoUrl: project.logo_url ?? "",
     navLayout,
     theme: (project.theme ?? "modern-b2b") as "modern-b2b" | "dark-dashboard" | "steel-metallurgy" | "wind-energy",
-    customTheme: (project.custom_theme as import("@/lib/themes").ThemeTokens) ?? null,
+    customTheme: (project.custom_theme as unknown as import("@/lib/themes").ThemeTokens) ?? null,
     navBackgroundColor: project.nav_background_color ?? null,
     appNameFontSize: project.app_name_font_size ?? null,
     appNameColor: project.app_name_color ?? null,

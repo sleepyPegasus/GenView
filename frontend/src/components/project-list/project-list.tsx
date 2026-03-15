@@ -205,7 +205,7 @@ export function ProjectList() {
                         {p.name}
                       </span>
                       <Link
-                        href={`/projects/${p.id}?tab=pages`}
+                        href={`/projects/${p.id}?tab=resources`}
                         onClick={(e) => e.stopPropagation()}
                         className="opacity-0 group-hover:opacity-100 px-2 py-1.5 rounded text-xs transition-opacity hover:bg-white/10"
                         style={{ color: "#94a3b8" }}

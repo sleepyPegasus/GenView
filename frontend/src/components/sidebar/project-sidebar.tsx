@@ -18,6 +18,8 @@ import {
   updatePage,
   updateConversation,
   getBaseUrl,
+  flattenNavConfigItems,
+  flattenNavMenuLabels,
   type Project,
   type Conversation,
   type Page,
@@ -43,14 +45,15 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { ProjectSettingsPanel } from "./project-settings-panel";
 import { ConversationNavMenuPanel } from "./conversation-nav-menu-panel";
+import { MermaidPreview } from "@/components/canvas/mermaid-preview";
 import { SandpackProvider, SandpackLayout, SandpackPreview, SandpackCodeEditor, useSandpack } from "@codesandbox/sandpack-react";
 import { generateSandpackFiles } from "@/lib/sandpack-files";
 
 interface ProjectSidebarProps {
   /** When on project route, pass projectId from URL so sidebar uses it */
   projectIdFromRoute?: string | null;
-  /** Initial tab when entering from project list (e.g. ?tab=pages) */
-  initialTab?: "conversations" | "pages" | "design";
+  /** Initial tab when entering from project list (e.g. ?tab=resources) */
+  initialTab?: "conversations" | "resources" | "design";
 }
 
 interface SortablePageRowProps {
@@ -104,24 +107,38 @@ function SortablePageRow({
       <span className="flex-1 truncate text-xs" style={{ color: "var(--gen-muted-fg)" }}>
         {page.name}
       </span>
-      <span className="text-[10px] opacity-60" style={{ color: "var(--gen-muted-fg)" }}>
-        {page.code_language}
-      </span>
-      {page.code_language === "tsx" && (
-        <>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onPreview(page);
-            }}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-            style={{ color: "var(--gen-muted-fg)" }}
-            title="Preview"
+      {(() => {
+        const resourceType =
+          page.code_language === "mermaid"
+            ? { label: "Diagram", color: "#10b981", bgColor: "rgba(16,185,129,0.15)" }
+            : page.code_language === "tsx"
+              ? { label: "Page", color: "#3b82f6", bgColor: "rgba(59,130,246,0.15)" }
+              : { label: page.code_language, color: "var(--gen-muted-fg)", bgColor: "var(--gen-muted)" };
+        return (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
+            style={{ color: resourceType.color, background: resourceType.bgColor }}
           >
-            <Eye size={12} />
-          </button>
-          <button
-            onClick={async (e) => {
+            {resourceType.label}
+          </span>
+        );
+      })()}
+      {(page.code_language === "tsx" || page.code_language === "mermaid") && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onPreview(page);
+          }}
+          className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
+          style={{ color: "var(--gen-muted-fg)" }}
+          title="Preview"
+        >
+          <Eye size={12} />
+        </button>
+      )}
+      {page.code_language === "tsx" && (
+        <button
+          onClick={async (e) => {
               e.stopPropagation();
               if (!projectIdFromRoute) return;
               setScreenshotLoadingPageIds((prev) => new Set(prev).add(page.id));
@@ -159,7 +176,6 @@ function SortablePageRow({
               <Download size={12} />
             )}
           </button>
-        </>
       )}
       <button
         onClick={(e) => {
@@ -172,18 +188,20 @@ function SortablePageRow({
       >
         <Copy size={12} />
       </button>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          onSettingsClick(page.id, { top: rect.bottom + 4, left: rect.right + 4 });
-        }}
-        className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-        style={{ color: "var(--gen-muted-fg)" }}
-        title="设置默认菜单"
-      >
-        <Settings2 size={12} />
-      </button>
+      {page.code_language === "tsx" && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            onSettingsClick(page.id, { top: rect.bottom + 4, left: rect.right + 4 });
+          }}
+          className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
+          style={{ color: "var(--gen-muted-fg)" }}
+          title="设置默认菜单"
+        >
+          <Settings2 size={12} />
+        </button>
+      )}
       <button
         onClick={(e) => onDelete(e, page.id)}
         className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
@@ -226,7 +244,7 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
   } = useAppStore();
 
   const [collapsed, setCollapsed] = useState(false);
-  const [activeTab, setActiveTab] = useState<"conversations" | "pages" | "design">(initialTab ?? "conversations");
+  const [activeTab, setActiveTab] = useState<"conversations" | "resources" | "design">(initialTab ?? "conversations");
   const [projects, setProjects] = useState<Project[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [pages, setPages] = useState<Page[]>([]);
@@ -442,9 +460,9 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
     return () => { cancelled = true; };
   }, [projectId, conversationId, conversationListVersion]);
 
-  // Load pages when on pages tab
+  // Load resources when on resources tab
   useEffect(() => {
-    if (!projectId || activeTab !== "pages") return;
+    if (!projectId || activeTab !== "resources") return;
     let cancelled = false;
     listPages(projectId).then((p) => {
       if (!cancelled) setPages(p);
@@ -462,9 +480,9 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
     return () => { cancelled = true; };
   }, [previewPage, projectIdFromRoute]);
 
-  // Load project when on Pages tab (for page settings menu items)
+  // Load project when on Resources tab (for page settings menu items)
   useEffect(() => {
-    if (!projectIdFromRoute || activeTab !== "pages") return;
+    if (!projectIdFromRoute || activeTab !== "resources") return;
     let cancelled = false;
     getProject(projectIdFromRoute).then((proj) => {
       if (!cancelled) setProjectForPages(proj);
@@ -489,22 +507,61 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
     setNavBackgroundColor(proj.nav_background_color ?? null);
     setAppNameFontSize(proj.app_name_font_size ?? null);
     setAppNameColor(proj.app_name_color ?? null);
-    const baseItems = (proj.nav_menu_items?.length ? proj.nav_menu_items : defaultNavMenuItems).map(({ label, icon }) => ({
-      label,
-      icon: icon ?? undefined,
-    }));
+    const baseItems = (proj.nav_menu_items?.length ? proj.nav_menu_items : defaultNavMenuItems).map((it) => {
+      const item = it as { label: string; icon?: string; children?: { label: string; icon?: string }[] };
+      return {
+        label: item.label,
+        icon: item.icon ?? undefined,
+        ...(item.children ? { children: item.children.map((c) => ({ label: c.label, icon: c.icon ?? undefined })) } : {}),
+      };
+    });
     setNavMenuItems(baseItems);
   };
 
   const applyConversationNavMenu = (conv: Conversation, proj: Project) => {
-    const baseItems = (proj.nav_menu_items?.length ? proj.nav_menu_items : defaultNavMenuItems).map(({ label, icon }) => ({
-      label,
-      icon: icon ?? undefined,
-    }));
+    const baseItems = (proj.nav_menu_items?.length ? proj.nav_menu_items : defaultNavMenuItems).map((it) => {
+      const item = it as { label: string; icon?: string; children?: { label: string; icon?: string }[] };
+      return {
+        label: item.label,
+        icon: item.icon ?? undefined,
+        ...(item.children ? { children: item.children.map((c) => ({ label: c.label, icon: c.icon ?? undefined })) } : {}),
+      };
+    });
     const convItems = conv.nav_menu_items ?? [];
-    const selectedIdx = convItems.findIndex((it) => it.selected);
-    const idx = selectedIdx >= 0 && selectedIdx < baseItems.length ? selectedIdx : 0;
-    setNavMenuItems(baseItems.map((it, i) => ({ ...it, selected: i === idx })));
+    let selectedIdx = 0;
+    let flatIdx = 0;
+    outer: for (const it of convItems as { label: string; selected?: boolean; children?: { label: string; selected?: boolean }[] }[]) {
+      if (it.selected) {
+        selectedIdx = flatIdx;
+        break;
+      }
+      if (it.children?.length) {
+        for (const ch of it.children) {
+          if (ch.selected) {
+            selectedIdx = flatIdx;
+            break outer;
+          }
+          flatIdx++;
+        }
+      } else {
+        flatIdx++;
+      }
+    }
+    let idx = 0;
+    const withSelected = baseItems.map((it, i) => {
+      if (it.children?.length) {
+        const ch = it.children.map((c, j) => {
+          const sel = idx === selectedIdx;
+          idx++;
+          return { ...c, selected: sel };
+        });
+        return { ...it, selected: false, children: ch };
+      }
+      const sel = idx === selectedIdx;
+      idx++;
+      return { ...it, selected: sel };
+    });
+    setNavMenuItems(withSelected);
   };
 
   const handleNewConversation = async () => {
@@ -625,8 +682,8 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
   };
 
   const handlePreviewPage = (p: Page) => {
-    if (p.code_language !== "tsx") {
-      toast.info("Only TSX pages can be previewed");
+    if (p.code_language !== "tsx" && p.code_language !== "mermaid") {
+      toast.info("Only Page and Diagram can be previewed");
       return;
     }
     setPreviewPage(p);
@@ -704,14 +761,14 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
               Chat
             </button>
             <button
-              onClick={() => setActiveTab("pages")}
-              className={`px-2 py-1 text-xs rounded ${activeTab === "pages" ? "font-medium" : ""}`}
+              onClick={() => setActiveTab("resources")}
+              className={`px-2 py-1 text-xs rounded ${activeTab === "resources" ? "font-medium" : ""}`}
               style={{
-                color: activeTab === "pages" ? "var(--gen-foreground)" : "var(--gen-muted-fg)",
-                background: activeTab === "pages" ? "var(--gen-muted)" : "transparent",
+                color: activeTab === "resources" ? "var(--gen-foreground)" : "var(--gen-muted-fg)",
+                background: activeTab === "resources" ? "var(--gen-muted)" : "transparent",
               }}
             >
-              Pages
+              Resources
             </button>
             {projectId && (
               <Link
@@ -747,12 +804,12 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
             <p className="text-xs py-4" style={{ color: "var(--gen-muted-fg)" }}>
               {error}
             </p>
-          ) : activeTab === "pages" ? (
+          ) : activeTab === "resources" ? (
             <>
               <div className="space-y-0.5">
                 {pages.length === 0 ? (
                   <p className="text-xs py-4" style={{ color: "var(--gen-muted-fg)" }}>
-                    No pages yet. Save from a conversation.
+                    No resources yet. Save from a conversation.
                   </p>
                 ) : (
                   <DndContext
@@ -1083,14 +1140,14 @@ function PageDefaultMenuPopover({
     { label: "Settings", icon: "Settings" },
   ];
   const navLayout = (project?.nav_layout ?? "side") as "top" | "side";
-  const cfg = project?.nav_config as { items?: { label: string; pageId: string }[]; top?: { pageId: string; label: string }[]; side?: { pageId: string; label: string }[] } | undefined;
+  const cfg = project?.nav_config as { items?: import("@/lib/api").NavConfigItem[]; top?: { pageId: string; label: string }[]; side?: { pageId: string; label: string }[] } | undefined;
   const configItems = (cfg?.items && Array.isArray(cfg.items))
-    ? (cfg.items.filter((i) => i.pageId) as { pageId: string; label: string }[])
+    ? flattenNavConfigItems(cfg.items)
     : ((cfg?.[navLayout] ?? []) as { pageId: string; label: string }[]);
   const menuItems =
     configItems.length > 0
       ? configItems.map((item) => item.label)
-      : (project?.nav_menu_items ?? defaultItems).map((item) => item.label);
+      : flattenNavMenuLabels(project?.nav_menu_items ?? defaultItems);
   const uniqueLabels = [...new Set(menuItems)];
 
   return (
@@ -1143,6 +1200,13 @@ function PagePreviewModal({
   const [screenshotLoading, setScreenshotLoading] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [editedMermaidCode, setEditedMermaidCode] = useState(page.code_block);
+  const [mermaidSaving, setMermaidSaving] = useState(false);
+
+  useEffect(() => {
+    setEditedMermaidCode(page.code_block);
+    setMode("preview");
+  }, [page.id, page.code_block]);
 
   const toggleFullscreen = useCallback(() => {
     if (!previewRef.current) return;
@@ -1181,7 +1245,7 @@ function PagePreviewModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {!project ? (
+        {!project && page.code_language !== "mermaid" ? (
           <>
             <div
               className="flex items-center justify-between px-4 py-2 flex-shrink-0 gap-2"
@@ -1194,6 +1258,116 @@ function PagePreviewModal({
             </div>
             <div className="flex-1 flex items-center justify-center">
               <Loader2 size={24} className="animate-spin" style={{ color: "var(--gen-primary)" }} />
+            </div>
+          </>
+        ) : page.code_language === "mermaid" ? (
+          <>
+            <div
+              className="flex items-center justify-between px-4 py-2 flex-shrink-0 gap-2"
+              style={{ borderBottom: "1px solid var(--gen-border)", color: "var(--gen-foreground)" }}
+            >
+              <span className="text-sm font-medium truncate">
+                {mode === "preview" ? "预览" : "编辑"}: {page.name}
+              </span>
+              <div className="flex items-center gap-1">
+                {mode === "preview" ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMode("edit")}
+                      className="flex items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-[var(--gen-muted)] transition-colors"
+                      style={{ color: "var(--gen-muted-fg)" }}
+                    >
+                      <Pencil size={12} />
+                      编辑代码
+                    </button>
+                    <button
+                      type="button"
+                      onClick={toggleFullscreen}
+                      className="flex items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-[var(--gen-muted)] transition-colors"
+                      style={{ color: "var(--gen-muted-fg)" }}
+                      title={isFullscreen ? "退出全屏 (Esc)" : "全屏预览"}
+                    >
+                      {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                      全屏
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMode("preview")}
+                      className="flex items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-[var(--gen-muted)] transition-colors"
+                      style={{ color: "var(--gen-muted-fg)" }}
+                    >
+                      <Eye size={12} />
+                      预览
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!projectId) return;
+                        setMermaidSaving(true);
+                        try {
+                          const updated = await updatePage(projectId, page.id, { code_block: editedMermaidCode });
+                          toast.success("已保存");
+                          onSaved?.(updated);
+                        } catch (err) {
+                          toast.error("保存失败", { description: err instanceof Error ? err.message : "Unknown error" });
+                        } finally {
+                          setMermaidSaving(false);
+                        }
+                      }}
+                      disabled={mermaidSaving}
+                      className="flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors disabled:opacity-50"
+                      style={{ background: "var(--gen-primary)", color: "#fff" }}
+                    >
+                      <Save size={12} />
+                      {mermaidSaving ? "保存中..." : "保存"}
+                    </button>
+                  </>
+                )}
+                <button type="button" onClick={onClose} className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div
+              ref={previewRef}
+              className="flex-1 min-h-0 overflow-hidden flex flex-col p-4"
+              style={{ minHeight: "calc(100dvh - 6rem)", height: "calc(100dvh - 6rem)" }}
+            >
+              {mode === "preview" ? (
+                <MermaidPreview code={editedMermaidCode} showCode={false} />
+              ) : (
+                <div className="flex-1 flex min-h-0 gap-4">
+                  <div className="flex-1 flex flex-col min-w-0 min-h-0">
+                    <label className="text-xs font-medium mb-1" style={{ color: "var(--gen-muted-fg)" }}>
+                      Mermaid 代码
+                    </label>
+                    <textarea
+                      value={editedMermaidCode}
+                      onChange={(e) => setEditedMermaidCode(e.target.value)}
+                      className="flex-1 w-full min-h-[200px] p-3 text-sm font-mono rounded-lg resize-none"
+                      style={{
+                        background: "var(--gen-muted)",
+                        color: "var(--gen-foreground)",
+                        border: "1px solid var(--gen-border)",
+                      }}
+                      spellCheck={false}
+                      placeholder="graph TD&#10;  A --> B"
+                    />
+                  </div>
+                  <div className="flex-1 flex flex-col min-w-0 min-h-0">
+                    <label className="text-xs font-medium mb-1" style={{ color: "var(--gen-muted-fg)" }}>
+                      预览
+                    </label>
+                    <div className="flex-1 min-h-0 overflow-hidden rounded-lg" style={{ border: "1px solid var(--gen-border)" }}>
+                      <MermaidPreview code={editedMermaidCode} showCode={false} />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         ) : (
@@ -1210,35 +1384,37 @@ function PagePreviewModal({
                 appNameFontSize: project.app_name_font_size ?? null,
                 appNameColor: project.app_name_color ?? null,
                 navMenuItems: (() => {
-                  const navLayout = (project.nav_layout ?? "side") as "top" | "side";
-                  const cfg = project.nav_config as { items?: { label: string; pageId: string }[]; top?: { pageId: string; label: string }[]; side?: { pageId: string; label: string }[] } | undefined;
+                  const cfg = project.nav_config as { items?: import("@/lib/api").NavConfigItem[]; top?: { pageId: string; label: string }[]; side?: { pageId: string; label: string }[] } | undefined;
                   const configItems = (cfg?.items && Array.isArray(cfg.items))
-                    ? (cfg.items.filter((i) => i.pageId) as { pageId: string; label: string }[])
-                    : ((cfg?.[navLayout] ?? []) as { pageId: string; label: string }[]);
+                    ? flattenNavConfigItems(cfg.items)
+                    : ((cfg?.side ?? cfg?.top ?? []) as { pageId: string; label: string }[]);
                   const defaultItems = [
                     { label: "Dashboard", icon: "LayoutDashboard" },
                     { label: "Analytics", icon: "BarChart" },
                     { label: "Settings", icon: "Settings" },
                   ];
-                  if (configItems.length > 0) {
-                    const hasMatch = configItems.some((item) => item.pageId === page.id);
-                    const labelMatchIdx = hasMatch ? -1 : configItems.findIndex((item) => item.label === page.nav_label);
-                    return configItems.map((item, i) => {
-                      const menuItem = (project.nav_menu_items ?? defaultItems).find((m) => m.label === item.label);
-                      return {
-                        label: item.label,
-                        icon: menuItem?.icon ?? undefined,
-                        selected:
-                          item.pageId === page.id ||
-                          (!hasMatch && (labelMatchIdx === i || (labelMatchIdx < 0 && i === 0))),
-                      };
-                    });
-                  }
-                  return (project.nav_menu_items ?? defaultItems).map((item, i) => ({
-                    label: item.label,
-                    icon: item.icon ?? undefined,
-                    selected: item.label === page.nav_label || (i === 0 && !page.nav_label),
-                  }));
+                  const menuItems = (project.nav_menu_items ?? defaultItems) as { label: string; icon?: string; children?: { label: string; icon?: string }[] }[];
+                  const hasExactMatch = configItems.some((c) => c.pageId === page.id);
+                  const firstConfigLabel = configItems[0]?.label;
+                  return menuItems.map((item) => {
+                    const hasChildren = (item.children?.length ?? 0) > 0;
+                    if (!hasChildren) {
+                      const sel = hasExactMatch ? configItems.some((c) => c.pageId === page.id && c.label === item.label) : (item.label === page.nav_label || (firstConfigLabel === item.label && !page.nav_label));
+                      return { label: item.label, icon: item.icon ?? undefined, selected: sel };
+                    }
+                    return {
+                      label: item.label,
+                      icon: item.icon ?? undefined,
+                      selected: false,
+                      children: (item.children ?? []).map((ch) => ({
+                        label: ch.label,
+                        icon: ch.icon ?? undefined,
+                        selected: hasExactMatch
+                          ? configItems.some((c) => c.pageId === page.id && c.label === ch.label)
+                          : (ch.label === page.nav_label || (firstConfigLabel === ch.label && !page.nav_label)),
+                      })),
+                    };
+                  });
                 })(),
                 contentCode: page.code_block,
                 extraFiles: (page.extra_files as Record<string, string>) ?? undefined,

@@ -11,6 +11,7 @@ import {
   type Page,
   type Project,
   type NavMenuItem,
+  type NavConfigItem,
 } from "@/lib/api";
 import { ThemeInjector } from "@/components/theme-injector";
 import { ArrowLeft, Loader2, Eye } from "lucide-react";
@@ -21,8 +22,6 @@ const DEFAULT_NAV_MENU_ITEMS: NavMenuItem[] = [
   { label: "Settings", icon: "Settings" },
 ];
 
-type NavConfigItem = { label: string; pageId: string };
-
 export default function SystemDesignPage() {
   const params = useParams();
   const projectId = params.projectId as string;
@@ -30,7 +29,6 @@ export default function SystemDesignPage() {
   const [pages, setPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  /** For each nav menu item: { label, pageId }. pageId empty = not configured. */
   const [items, setItems] = useState<NavConfigItem[]>([]);
 
   const navMenuItems = (project?.nav_menu_items?.length ? project.nav_menu_items : DEFAULT_NAV_MENU_ITEMS) as NavMenuItem[];
@@ -43,24 +41,47 @@ export default function SystemDesignPage() {
         if (!cancelled) {
           setProject(proj);
           setPages(pgs);
-          const cfg = proj.nav_config as { items?: NavConfigItem[]; top?: NavConfigItem[]; side?: NavConfigItem[] } | undefined;
-          const navItems = proj.nav_menu_items?.length ? proj.nav_menu_items : DEFAULT_NAV_MENU_ITEMS;
+          const cfg = proj.nav_config as { items?: NavConfigItem[]; top?: { label: string; pageId: string }[]; side?: { label: string; pageId: string }[] } | undefined;
+          const navItems = (proj.nav_menu_items?.length ? proj.nav_menu_items : DEFAULT_NAV_MENU_ITEMS) as NavMenuItem[];
           if (cfg?.items && Array.isArray(cfg.items)) {
-            const merged = (navItems as NavMenuItem[]).map((m, i) => {
+            const merged = navItems.map((m, i) => {
               const existing = cfg.items!.find((c) => c.label === m.label) ?? cfg.items![i];
-              return { label: m.label, pageId: existing?.pageId ?? "" };
+              const hasChildren = (m.children?.length ?? 0) > 0;
+              if (hasChildren) {
+                const existingChildren = (existing as NavConfigItem)?.children ?? [];
+                const children = (m.children ?? []).map((ch, j) => {
+                  const ec = existingChildren.find((c) => c.label === ch.label) ?? existingChildren[j];
+                  return { label: ch.label, pageId: ec?.pageId ?? "" };
+                });
+                return { label: m.label, pageId: (existing as NavConfigItem)?.pageId ?? "", children };
+              }
+              return { label: m.label, pageId: (existing as { pageId?: string })?.pageId ?? "" };
             });
             setItems(merged.length ? merged : [{ label: "Dashboard", pageId: "" }, { label: "Analytics", pageId: "" }, { label: "Settings", pageId: "" }]);
           } else {
-            const legacy = (cfg?.side ?? cfg?.top ?? []) as NavConfigItem[];
+            const legacy = (cfg?.side ?? cfg?.top ?? []) as { label: string; pageId: string }[];
             if (legacy.length > 0) {
-              const merged = (navItems as NavMenuItem[]).map((m) => {
+              const merged = navItems.map((m) => {
+                const hasChildren = (m.children?.length ?? 0) > 0;
+                if (hasChildren) {
+                  const children = (m.children ?? []).map((ch) => {
+                    const found = legacy.find((c) => c.label === ch.label);
+                    return { label: ch.label, pageId: found?.pageId ?? "" };
+                  });
+                  return { label: m.label, pageId: "", children };
+                }
                 const found = legacy.find((c) => c.label === m.label);
                 return { label: m.label, pageId: found?.pageId ?? "" };
               });
               setItems(merged);
             } else {
-              setItems((navItems as NavMenuItem[]).map((m) => ({ label: m.label, pageId: "" })));
+              setItems(navItems.map((m) => {
+                const hasChildren = (m.children?.length ?? 0) > 0;
+                if (hasChildren) {
+                  return { label: m.label, pageId: "", children: (m.children ?? []).map((ch) => ({ label: ch.label, pageId: "" })) };
+                }
+                return { label: m.label, pageId: "" };
+              }));
             }
           }
         }
@@ -74,8 +95,18 @@ export default function SystemDesignPage() {
     return () => { cancelled = true; };
   }, [projectId]);
 
-  const setPageForLabel = (label: string, pageId: string) => {
-    setItems((prev) => prev.map((i) => (i.label === label ? { ...i, pageId } : i)));
+  const setPageForLabel = (label: string, pageId: string, parentLabel?: string) => {
+    setItems((prev) =>
+      prev.map((i) => {
+        if (parentLabel) {
+          if (i.label !== parentLabel) return i;
+          const children = (i.children ?? []).map((c) => (c.label === label ? { ...c, pageId } : c));
+          return { ...i, children };
+        }
+        if (i.label === label) return { ...i, pageId };
+        return i;
+      })
+    );
   };
 
   const handleSave = async () => {
@@ -94,7 +125,10 @@ export default function SystemDesignPage() {
     }
   };
 
-  const configuredCount = items.filter((i) => i.pageId).length;
+  const configuredCount = items.reduce(
+    (acc, i) => acc + (i.pageId ? 1 : 0) + (i.children ?? []).filter((c) => c.pageId).length,
+    0
+  );
   const hasNavConfig = configuredCount > 0;
 
   if (loading) {
@@ -157,7 +191,7 @@ export default function SystemDesignPage() {
           style={{ color: "var(--gen-foreground)" }}
         >
           <p className="text-sm mb-4" style={{ color: "var(--gen-muted-fg)" }}>
-            为每个导航菜单项选择要渲染的页面。导航菜单来自项目设置，页面来自 Pages Tab。
+            为每个导航菜单项选择要渲染的页面。导航菜单来自项目设置，页面来自 Resources Tab。
           </p>
           <div className="max-w-2xl space-y-4">
             <h2 className="text-sm font-medium" style={{ color: "var(--gen-foreground)" }}>
@@ -165,35 +199,64 @@ export default function SystemDesignPage() {
             </h2>
             <div className="space-y-3">
               {items.map((item) => (
-                <div
-                  key={item.label}
-                  className="flex items-center gap-4 px-4 py-3 rounded-lg"
-                  style={{ background: "var(--gen-muted)" }}
-                >
-                  <span className="w-28 flex-shrink-0 text-sm font-medium">{item.label}</span>
-                  <select
-                    value={item.pageId}
-                    onChange={(e) => setPageForLabel(item.label, e.target.value)}
-                    className="flex-1 text-sm px-3 py-2 rounded border"
-                    style={{
-                      background: "var(--gen-background)",
-                      borderColor: "var(--gen-border)",
-                      color: "var(--gen-foreground)",
-                    }}
+                <div key={item.label} className="space-y-2">
+                  <div
+                    className="flex items-center gap-4 px-4 py-3 rounded-lg"
+                    style={{ background: "var(--gen-muted)" }}
                   >
-                    <option value="">未选择</option>
-                    {tsxPages.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
+                    <span className="w-28 flex-shrink-0 text-sm font-medium">{item.label}</span>
+                    <select
+                      value={item.pageId ?? ""}
+                      onChange={(e) => setPageForLabel(item.label, e.target.value)}
+                      className="flex-1 text-sm px-3 py-2 rounded border"
+                      style={{
+                        background: "var(--gen-background)",
+                        borderColor: "var(--gen-border)",
+                        color: "var(--gen-foreground)",
+                      }}
+                    >
+                      <option value="">未选择</option>
+                      {tsxPages.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {(item.children ?? []).map((child) => (
+                    <div
+                      key={`${item.label}-${child.label}`}
+                      className="flex items-center gap-4 px-4 py-3 rounded-lg ml-6"
+                      style={{ background: "var(--gen-muted)" }}
+                    >
+                      <span className="w-28 flex-shrink-0 text-sm" style={{ color: "var(--gen-muted-fg)" }}>
+                        {item.label} › {child.label}
+                      </span>
+                      <select
+                        value={child.pageId}
+                        onChange={(e) => setPageForLabel(child.label, e.target.value, item.label)}
+                        className="flex-1 text-sm px-3 py-2 rounded border"
+                        style={{
+                          background: "var(--gen-background)",
+                          borderColor: "var(--gen-border)",
+                          color: "var(--gen-foreground)",
+                        }}
+                      >
+                        <option value="">未选择</option>
+                        {tsxPages.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
             {tsxPages.length === 0 && (
               <p className="text-xs py-2" style={{ color: "var(--gen-muted-fg)" }}>
-                暂无 tsx 页面。请先在对话中保存页面到 Pages Tab。
+                暂无 tsx 页面。请先在对话中保存页面到 Resources Tab。
               </p>
             )}
           </div>

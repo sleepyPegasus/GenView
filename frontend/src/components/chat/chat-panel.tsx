@@ -95,15 +95,56 @@ export function ChatPanel() {
   } = useAppStore();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(6);
   const abortRef = useRef<AbortController | null>(null);
   const skipLoadForConvIdRef = useRef<string | null>(null);
+
+  const ROUND_SIZE = 6;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    setVisibleCount(6);
+  }, [conversationId]);
+
+  const visibleMessages =
+    messages.length <= ROUND_SIZE || isStreaming
+      ? messages
+      : messages.slice(-visibleCount);
+
+  const scrollRestoreRef = useRef<{ height: number; top: number } | null>(null);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const sentinel = topSentinelRef.current;
+    if (!container || !sentinel || messages.length <= visibleCount || isStreaming) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0].isIntersecting) return;
+        scrollRestoreRef.current = { height: container.scrollHeight, top: container.scrollTop };
+        setVisibleCount((prev) => Math.min(prev + ROUND_SIZE, messages.length));
+      },
+      { root: container, rootMargin: "0px", threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [messages.length, visibleCount, isStreaming]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const restore = scrollRestoreRef.current;
+    if (!container || !restore) return;
+    scrollRestoreRef.current = null;
+    const added = container.scrollHeight - restore.height;
+    if (added > 0) container.scrollTop = restore.top + added;
+  }, [visibleCount]);
 
   // Load messages when conversation changes (e.g. user switched in sidebar)
   useEffect(() => {
@@ -275,21 +316,60 @@ export function ChatPanel() {
             setNavBackgroundColor(p.nav_background_color ?? null);
             setAppNameFontSize(p.app_name_font_size ?? null);
             setAppNameColor(p.app_name_color ?? null);
-            const baseItems = (p.nav_menu_items?.length ? p.nav_menu_items : defaultNavMenuItems).map(({ label, icon }) => ({
-              label,
-              icon: icon ?? undefined,
-            }));
+            const baseItems = (p.nav_menu_items?.length ? p.nav_menu_items : defaultNavMenuItems).map((it) => {
+              const item = it as { label: string; icon?: string; children?: { label: string; icon?: string }[] };
+              return {
+                label: item.label,
+                icon: item.icon ?? undefined,
+                ...(item.children ? { children: item.children.map((c) => ({ label: c.label, icon: c.icon ?? undefined })) } : {}),
+              };
+            });
             setNavMenuItems(baseItems);
           };
           const applyConversationNavMenu = (c: import("@/lib/api").Conversation, p: import("@/lib/api").Project) => {
-            const baseItems = (p.nav_menu_items?.length ? p.nav_menu_items : defaultNavMenuItems).map(({ label, icon }) => ({
-              label,
-              icon: icon ?? undefined,
-            }));
+            const baseItems = (p.nav_menu_items?.length ? p.nav_menu_items : defaultNavMenuItems).map((it) => {
+              const item = it as { label: string; icon?: string; children?: { label: string; icon?: string }[] };
+              return {
+                label: item.label,
+                icon: item.icon ?? undefined,
+                ...(item.children ? { children: item.children.map((ch) => ({ label: ch.label, icon: ch.icon ?? undefined })) } : {}),
+              };
+            });
             const convItems = c.nav_menu_items ?? [];
-            const selectedIdx = convItems.findIndex((it) => it.selected);
-            const idx = selectedIdx >= 0 && selectedIdx < baseItems.length ? selectedIdx : 0;
-            setNavMenuItems(baseItems.map((it, i) => ({ ...it, selected: i === idx })));
+            let selectedIdx = 0;
+            let flatIdx = 0;
+            outer: for (const it of convItems as { selected?: boolean; children?: { selected?: boolean }[] }[]) {
+              if (it.selected) {
+                selectedIdx = flatIdx;
+                break;
+              }
+              if (it.children?.length) {
+                for (const ch of it.children) {
+                  if (ch.selected) {
+                    selectedIdx = flatIdx;
+                    break outer;
+                  }
+                  flatIdx++;
+                }
+              } else {
+                flatIdx++;
+              }
+            }
+            let idx = 0;
+            const withSelected = baseItems.map((it) => {
+              if (it.children?.length) {
+                const ch = it.children.map((c) => {
+                  const sel = idx === selectedIdx;
+                  idx++;
+                  return { ...c, selected: sel };
+                });
+                return { ...it, selected: false, children: ch };
+              }
+              const sel = idx === selectedIdx;
+              idx++;
+              return { ...it, selected: sel };
+            });
+            setNavMenuItems(withSelected);
           };
           (async () => {
             const proj = await getProject(pid);
@@ -522,7 +602,10 @@ export function ChatPanel() {
   return (
     <div className="h-full flex flex-col min-w-0" style={{ background: "var(--gen-card)" }}>
       {/* Chat messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        {messages.length > visibleCount && !isStreaming && (
+          <div ref={topSentinelRef} className="h-1 flex-shrink-0" aria-hidden />
+        )}
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center opacity-60">
             <Bot size={36} style={{ color: "var(--gen-primary)" }} className="mb-3" />
@@ -536,7 +619,7 @@ export function ChatPanel() {
           </div>
         )}
 
-        {messages.map((msg) => {
+        {visibleMessages.map((msg) => {
           if (msg.role === "user") {
             return (
               <div key={msg.id} className="flex gap-3 justify-end group">

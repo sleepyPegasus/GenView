@@ -22,7 +22,7 @@ export interface Project {
   app_name_font_size?: string | null;
   app_name_color?: string | null;
   nav_config?: {
-    items?: { label: string; pageId: string }[];
+    items?: NavConfigItem[];
     top?: { pageId: string; label: string }[];
     side?: { pageId: string; label: string }[];
   } | null;
@@ -46,10 +46,46 @@ export interface Page {
   updated_at: string;
 }
 
+export interface NavMenuChild {
+  label: string;
+  icon?: string;
+  selected?: boolean;
+}
+
 export interface NavMenuItem {
   label: string;
   icon?: string;
   selected?: boolean;
+  /** Secondary menu items (nested under this item) */
+  children?: NavMenuChild[];
+}
+
+/** For nav_config: leaf has pageId, group has children with pageIds */
+export interface NavConfigItem {
+  label: string;
+  pageId?: string;
+  children?: { label: string; pageId: string }[];
+}
+
+/** Flatten nav_config.items to { pageId, label }[] for routing/preview */
+export function flattenNavConfigItems(items: NavConfigItem[] | undefined): { pageId: string; label: string }[] {
+  if (!items?.length) return [];
+  const result: { pageId: string; label: string }[] = [];
+  for (const item of items) {
+    if (item.pageId) result.push({ pageId: item.pageId, label: item.label });
+    if (item.children) {
+      for (const ch of item.children) {
+        if (ch.pageId) result.push({ pageId: ch.pageId, label: ch.label });
+      }
+    }
+  }
+  return result;
+}
+
+/** Flatten nav_menu_items to get all labels (for page assignment when no config) */
+export function flattenNavMenuLabels(items: NavMenuItem[] | undefined): string[] {
+  if (!items?.length) return [];
+  return items.flatMap((i) => [i.label, ...(i.children ?? []).map((c) => c.label)]);
 }
 
 export interface Conversation {
@@ -127,7 +163,7 @@ export async function updateProject(
     app_name_font_size?: string | null;
     app_name_color?: string | null;
     nav_config?: {
-      items?: { label: string; pageId: string }[];
+      items?: NavConfigItem[];
       top?: { pageId: string; label: string }[];
       side?: { pageId: string; label: string }[];
     } | null;

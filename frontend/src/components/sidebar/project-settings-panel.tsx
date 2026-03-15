@@ -7,7 +7,7 @@ import { ChevronDown, ChevronRight, Settings2, Upload, Download, Save, Plus, Tra
 import * as LucideIcons from "lucide-react";
 import { IconPicker } from "@/components/ui/icon-picker";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { updateProject } from "@/lib/api";
+import { updateProject, type NavMenuItem } from "@/lib/api";
 import { themeMap } from "@/lib/themes";
 import type { ThemeTokens } from "@/lib/themes";
 import { toast } from "sonner";
@@ -32,6 +32,7 @@ function getIconComp(name: string): IconComp | null {
 export function ProjectSettingsPanel() {
   const [collapsed, setCollapsed] = useState(true);
   const [navPreviewOpen, setNavPreviewOpen] = useState(false);
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const {
     projectId,
     appName,
@@ -58,18 +59,26 @@ export function ProjectSettingsPanel() {
     setNavBackgroundColor,
   } = useAppStore();
 
+  const normalizeForSave = useCallback((items: NavMenuItem[]) => {
+    return items.map(({ label, icon, children }) => ({
+      label,
+      icon: icon ?? undefined,
+      ...(children?.length ? { children: children.map(({ label: l, icon: ic }) => ({ label: l, icon: ic ?? undefined })) } : {}),
+    }));
+  }, []);
+
   const saveToProject = useCallback(
     (data: Parameters<typeof updateProject>[1]) => {
       if (!projectId) return;
       const payload = { ...data };
       if (payload.nav_menu_items) {
-        payload.nav_menu_items = payload.nav_menu_items.map(({ label, icon }) => ({ label, icon }));
+        payload.nav_menu_items = normalizeForSave(payload.nav_menu_items);
       }
       updateProject(projectId, payload).catch(() => {
         toast.error("Failed to save project settings");
       });
     },
-    [projectId]
+    [projectId, normalizeForSave]
   );
 
   const handleSaveAll = useCallback(() => {
@@ -88,7 +97,7 @@ export function ProjectSettingsPanel() {
       nav_background_color: navBackgroundColor ?? undefined,
       app_name_font_size: appNameFontSize ?? undefined,
       app_name_color: appNameColor ?? undefined,
-      nav_menu_items: (navMenuItems ?? []).map(({ label, icon }) => ({ label, icon })),
+      nav_menu_items: normalizeForSave(navMenuItems ?? []),
     })
       .then(() => toast.success("设置已保存"))
       .catch(() => toast.error("保存失败"));
@@ -105,6 +114,7 @@ export function ProjectSettingsPanel() {
     conversationMode,
     navBackgroundColor,
     navMenuItems,
+    normalizeForSave,
   ]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -389,44 +399,127 @@ export function ProjectSettingsPanel() {
               Navigation Menu
             </label>
             <div className="space-y-1.5">
-              {(navMenuItems ?? []).map((item, i) => (
-                <div key={i} className="flex gap-1.5 items-center">
-                  <IconPicker
-                    value={item.icon ?? ""}
-                    onChange={(iconName) => {
-                      const next = [...(navMenuItems ?? [])];
-                      next[i] = { ...next[i], icon: iconName };
-                      setNavMenuItems(next);
-                      saveToProject({ nav_menu_items: next });
-                    }}
-                    className="flex-shrink-0"
-                  />
-                  <Input
-                    value={item.label}
-                    onChange={(e) => {
-                      const next = [...(navMenuItems ?? [])];
-                      next[i] = { ...next[i], label: e.target.value };
-                      setNavMenuItems(next);
-                      saveToProject({ nav_menu_items: next });
-                    }}
-                    placeholder="Label"
-                    className="flex-1 text-xs h-8"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = (navMenuItems ?? []).filter((_, j) => j !== i);
-                      setNavMenuItems(next);
-                      saveToProject({ nav_menu_items: next });
-                    }}
-                    className="p-1 rounded"
-                    style={{ color: "var(--gen-muted-fg)" }}
-                    title="Remove"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
+              {(navMenuItems ?? []).map((item, i) => {
+                const hasChildren = (item.children?.length ?? 0) > 0;
+                const isExpanded = expandedItems.has(i);
+                return (
+                  <div key={i} className="space-y-1">
+                    <div className="flex gap-1.5 items-center">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedItems((s) => {
+                          const next = new Set(s);
+                          if (next.has(i)) next.delete(i);
+                          else next.add(i);
+                          return next;
+                        })}
+                        className="p-0.5 rounded flex-shrink-0 w-5 h-5 flex items-center justify-center"
+                        style={{ color: hasChildren ? "var(--gen-muted-fg)" : "transparent", visibility: hasChildren ? "visible" : "hidden" }}
+                        title={isExpanded ? "收起" : "展开"}
+                      >
+                        {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      </button>
+                      <IconPicker
+                        value={item.icon ?? ""}
+                        onChange={(iconName) => {
+                          const next = [...(navMenuItems ?? [])];
+                          next[i] = { ...next[i], icon: iconName };
+                          setNavMenuItems(next);
+                          saveToProject({ nav_menu_items: next });
+                        }}
+                        className="flex-shrink-0"
+                      />
+                      <Input
+                        value={item.label}
+                        onChange={(e) => {
+                          const next = [...(navMenuItems ?? [])];
+                          next[i] = { ...next[i], label: e.target.value };
+                          setNavMenuItems(next);
+                          saveToProject({ nav_menu_items: next });
+                        }}
+                        placeholder="Label"
+                        className="flex-1 text-xs h-8"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = [...(navMenuItems ?? [])];
+                          next[i] = { ...next[i], children: [...(next[i].children ?? []), { label: "Sub Item", icon: "FileText" }] };
+                          setNavMenuItems(next);
+                          setExpandedItems((s) => new Set(s).add(i));
+                          saveToProject({ nav_menu_items: next });
+                        }}
+                        className="p-1 rounded"
+                        style={{ color: "var(--gen-primary)" }}
+                        title="Add sub item"
+                      >
+                        <Plus size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = (navMenuItems ?? []).filter((_, j) => j !== i);
+                          setNavMenuItems(next);
+                          saveToProject({ nav_menu_items: next });
+                        }}
+                        className="p-1 rounded"
+                        style={{ color: "var(--gen-muted-fg)" }}
+                        title="Remove"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                    {hasChildren && isExpanded && (
+                      <div className="pl-6 space-y-1">
+                        {(item.children ?? []).map((child, j) => (
+                          <div key={j} className="flex gap-1.5 items-center">
+                            <IconPicker
+                              value={child.icon ?? ""}
+                              onChange={(iconName) => {
+                                const next = [...(navMenuItems ?? [])];
+                                const ch = [...(next[i].children ?? [])];
+                                ch[j] = { ...ch[j], icon: iconName };
+                                next[i] = { ...next[i], children: ch };
+                                setNavMenuItems(next);
+                                saveToProject({ nav_menu_items: next });
+                              }}
+                              className="flex-shrink-0"
+                            />
+                            <Input
+                              value={child.label}
+                              onChange={(e) => {
+                                const next = [...(navMenuItems ?? [])];
+                                const ch = [...(next[i].children ?? [])];
+                                ch[j] = { ...ch[j], label: e.target.value };
+                                next[i] = { ...next[i], children: ch };
+                                setNavMenuItems(next);
+                                saveToProject({ nav_menu_items: next });
+                              }}
+                              placeholder="Sub label"
+                              className="flex-1 text-xs h-8"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = [...(navMenuItems ?? [])];
+                                const ch = (next[i].children ?? []).filter((_, k) => k !== j);
+                                next[i] = { ...next[i], children: ch.length ? ch : undefined };
+                                setNavMenuItems(next);
+                                saveToProject({ nav_menu_items: next });
+                              }}
+                              className="p-1 rounded"
+                              style={{ color: "var(--gen-muted-fg)" }}
+                              title="Remove"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               <button
                 type="button"
                 onClick={() => {
@@ -553,7 +646,7 @@ function NavPreviewInline({
   getIconComp,
 }: {
   navLayout: NavLayout;
-  navMenuItems: { label: string; icon?: string }[];
+  navMenuItems: NavMenuItem[];
   appName: string;
   logoUrl: string;
   navBackgroundColor: string | null;
@@ -568,7 +661,29 @@ function NavPreviewInline({
   const fg = tokens.sidebarForeground;
   const appFontSize = appNameFontSize ?? "14px";
   const appColor = appNameColor ?? fg;
-  const items = navMenuItems.length ? navMenuItems : [{ label: "Dashboard", icon: "LayoutDashboard" }, { label: "Analytics", icon: "BarChart" }, { label: "Settings", icon: "Settings" }];
+  const items = navMenuItems.length ? navMenuItems : [
+    { label: "Dashboard", icon: "LayoutDashboard" },
+    { label: "Analytics", icon: "BarChart" },
+    { label: "Settings", icon: "Settings" },
+  ];
+
+  const renderNavItem = (item: { label: string; icon?: string }, key: string, opts?: { isChild?: boolean; isFirst?: boolean }) => {
+    const Icon = item.icon ? getIconComp(item.icon) : null;
+    return (
+      <div
+        key={key}
+        className="flex items-center gap-2 py-1.5 px-2 rounded text-xs mb-0.5"
+        style={{
+          marginLeft: opts?.isChild ? 12 : 0,
+          background: opts?.isFirst ? "rgba(255,255,255,0.08)" : "transparent",
+          opacity: opts?.isFirst ? 1 : 0.7,
+        }}
+      >
+        {Icon ? <Icon size={14} /> : null}
+        <span>{item.label || "Item"}</span>
+      </div>
+    );
+  };
 
   if (navLayout === "side") {
     return (
@@ -588,22 +703,12 @@ function NavPreviewInline({
             <span className="font-semibold text-xs truncate" style={{ fontSize: appFontSize, color: appColor }}>{appName || "App"}</span>
           </div>
           <nav className="p-2 flex-1">
-            {items.map((item, i) => {
-              const Icon = item.icon ? getIconComp(item.icon) : null;
-              return (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 py-1.5 px-2 rounded text-xs mb-0.5"
-                  style={{
-                    background: i === 0 ? "rgba(255,255,255,0.08)" : "transparent",
-                    opacity: i === 0 ? 1 : 0.7,
-                  }}
-                >
-                  {Icon ? <Icon size={14} /> : null}
-                  <span>{item.label || "Item"}</span>
-                </div>
-              );
-            })}
+            {items.map((item, i) => (
+              <div key={i}>
+                {renderNavItem(item, `item-${i}`, { isFirst: i === 0 })}
+                {(item.children ?? []).map((child, j) => renderNavItem(child, `item-${i}-child-${j}`, { isChild: true }))}
+              </div>
+            ))}
           </nav>
         </aside>
         <div className="flex-1 p-4 flex items-center justify-center" style={{ background: tokens.background, color: tokens.mutedForeground, fontSize: 12 }}>
@@ -613,6 +718,7 @@ function NavPreviewInline({
     );
   }
 
+  const [topOpenIdx, setTopOpenIdx] = useState<number>(-1);
   return (
     <div className="flex flex-col rounded-lg overflow-hidden border" style={{ borderColor: "var(--gen-border)", minHeight: 160 }}>
       <header
@@ -629,20 +735,52 @@ function NavPreviewInline({
           )}
           <span className="font-semibold text-xs" style={{ fontSize: appFontSize, color: appColor }}>{appName || "App"}</span>
         </div>
-        <nav className="flex gap-1 flex-1">
+        <nav className="flex gap-1 flex-1 items-center">
           {items.map((item, i) => {
-            const Icon = item.icon ? getIconComp(item.icon) : null;
+            const hasChildren = (item.children?.length ?? 0) > 0;
+            if (!hasChildren) {
+              const Icon = item.icon ? getIconComp(item.icon) : null;
+              return (
+                <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded text-xs" style={{ background: i === 0 ? "rgba(255,255,255,0.08)" : "transparent", opacity: i === 0 ? 1 : 0.7 }}>
+                  {Icon ? <Icon size={14} /> : null}
+                  <span>{item.label || "Item"}</span>
+                </div>
+              );
+            }
+            const isParentActive = (item.children ?? []).some((c) => (c as { selected?: boolean }).selected);
+            const ParentIcon = item.icon ? getIconComp(item.icon) : null;
             return (
               <div
                 key={i}
-                className="flex items-center gap-1.5 py-1 px-2 rounded text-xs"
-                style={{
-                  background: i === 0 ? "rgba(255,255,255,0.08)" : "transparent",
-                  opacity: i === 0 ? 1 : 0.7,
-                }}
+                className="relative"
+                onMouseEnter={() => setTopOpenIdx(i)}
+                onMouseLeave={() => setTopOpenIdx(-1)}
               >
-                {Icon ? <Icon size={14} /> : null}
-                <span>{item.label || "Item"}</span>
+                <div className="flex items-center gap-2 py-1.5 px-2 rounded text-xs" style={{ background: isParentActive ? "rgba(255,255,255,0.08)" : "transparent", opacity: isParentActive ? 1 : 0.7 }}>
+                  {ParentIcon ? <ParentIcon size={14} /> : null}
+                  <span>{item.label || "Item"}</span>
+                </div>
+                {topOpenIdx === i && (item.children ?? []).length > 0 && (
+                  <div
+                    className="absolute left-0 mt-1 rounded py-1 min-w-[120px] z-10"
+                    style={{ background: sidebarBg, border: "1px solid var(--gen-border)", boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}
+                  >
+                    {(item.children ?? []).map((ch, j) => {
+                      const Icon = ch.icon ? getIconComp(ch.icon) : null;
+                      const sel = (ch as { selected?: boolean }).selected ?? false;
+                      return (
+                        <div
+                          key={j}
+                          className="flex items-center gap-2 py-2 px-3 text-xs"
+                          style={{ background: sel ? "rgba(255,255,255,0.08)" : "transparent", opacity: sel ? 1 : 0.7, borderTop: j === 0 ? "none" : "1px solid rgba(255,255,255,0.06)" }}
+                        >
+                          {Icon ? <Icon size={14} /> : null}
+                          <span>{ch.label || "Item"}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}

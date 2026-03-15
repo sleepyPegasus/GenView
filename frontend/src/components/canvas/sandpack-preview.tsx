@@ -82,6 +82,7 @@ export const SandpackRenderer = React.memo(function SandpackRenderer({
 
   return (
     <SandpackProvider
+      key={JSON.stringify(navMenuItems)}
       template="react-ts"
       files={initialFiles}
       customSetup={{

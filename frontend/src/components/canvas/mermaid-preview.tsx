@@ -20,15 +20,9 @@ export function MermaidPreview({ code, showCode }: MermaidPreviewProps) {
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [scale, setScale] = useState(1);
+  const [svgSize, setSvgSize] = useState({ w: 0, h: 0 });
 
-  const fitToView = () => {
-    const container = scrollContainerRef.current;
-    const svgEl = containerRef.current?.querySelector?.("svg");
-    if (!container || !svgEl) return;
-    const rect = container.getBoundingClientRect();
-    const cw = rect.width - PADDING * 2;
-    const ch = rect.height - PADDING * 2;
-    if (cw <= 0 || ch <= 0) return;
+  const getSvgDimensions = (svgEl: SVGElement): { w: number; h: number } => {
     let sw = 0;
     let sh = 0;
     const svgRect = svgEl.getBBox?.();
@@ -49,6 +43,18 @@ export function MermaidPreview({ code, showCode }: MermaidPreviewProps) {
         sh = parseInt(svgEl.getAttribute("height") || "0", 10);
       }
     }
+    return { w: sw, h: sh };
+  };
+
+  const fitToView = () => {
+    const container = scrollContainerRef.current;
+    const svgEl = containerRef.current?.querySelector?.("svg");
+    if (!container || !svgEl) return;
+    const rect = container.getBoundingClientRect();
+    const cw = rect.width - PADDING * 2;
+    const ch = rect.height - PADDING * 2;
+    if (cw <= 0 || ch <= 0) return;
+    const { w: sw, h: sh } = getSvgDimensions(svgEl);
     if (sw > 0 && sh > 0) {
       const fit = Math.min(cw / sw, ch / sh);
       setScale(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fit)));
@@ -57,7 +63,14 @@ export function MermaidPreview({ code, showCode }: MermaidPreviewProps) {
 
   useEffect(() => {
     if (!svg) return;
-    const timer = requestAnimationFrame(() => fitToView());
+    const timer = requestAnimationFrame(() => {
+      const svgEl = containerRef.current?.querySelector?.("svg");
+      if (svgEl) {
+        const { w, h } = getSvgDimensions(svgEl);
+        if (w > 0 && h > 0) setSvgSize({ w, h });
+      }
+      fitToView();
+    });
     return () => cancelAnimationFrame(timer);
   }, [svg]);
 
@@ -158,15 +171,35 @@ export function MermaidPreview({ code, showCode }: MermaidPreviewProps) {
           适应画布
         </button>
       </div>
-      <div ref={scrollContainerRef} className="flex-1 overflow-auto min-h-0 flex items-center justify-center p-8">
-        <div
-          ref={containerRef}
-          style={{
-            transform: `scale(${scale})`,
-            transformOrigin: "center center",
-          }}
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto min-h-0 p-8">
+        {svgSize.w > 0 && svgSize.h > 0 ? (
+          <div
+            style={{
+              width: svgSize.w * scale,
+              height: svgSize.h * scale,
+            }}
+          >
+            <div
+              ref={containerRef}
+              style={{
+                width: svgSize.w,
+                height: svgSize.h,
+                transform: `scale(${scale})`,
+                transformOrigin: "top left",
+              }}
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+          </div>
+        ) : (
+          <div
+            ref={containerRef}
+            style={{
+              transform: `scale(${scale})`,
+              transformOrigin: "center center",
+            }}
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        )}
       </div>
     </div>
   );
