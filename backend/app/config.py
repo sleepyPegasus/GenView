@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     # 保留最近 N 轮对话发送给模型，0 表示不限制
     chat_max_rounds: int = 20
 
+    # MemOS Cloud 记忆服务 (https://github.com/MemTensor/MemOS)
+    memos_api_key: str = ""
+    memos_base_url: str = "https://memos.memtensor.cn/api/openmem/v1"
+    memos_enabled: bool = False
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

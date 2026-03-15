@@ -136,7 +136,7 @@ export function MermaidPreview({ code, showCode }: MermaidPreviewProps) {
   }
 
   return (
-    <div className="h-full flex flex-col min-h-0">
+    <div className="h-full flex flex-col min-h-0" data-mermaid-ready={svg ? "true" : undefined}>
       <div
         className="flex items-center gap-1.5 px-3 py-2 flex-shrink-0"
         style={{ borderBottom: "1px solid var(--gen-border)", color: "var(--gen-muted-fg)" }}

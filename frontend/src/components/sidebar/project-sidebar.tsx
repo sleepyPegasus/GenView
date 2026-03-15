@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { useAppStore } from "@/store/app-store";
@@ -25,7 +25,7 @@ import {
   type Page,
 } from "@/lib/api";
 import Link from "next/link";
-import { MessageSquarePlus, ChevronLeft, ChevronRight, GripVertical, Trash2, Loader2, Pencil, ArrowLeft, FileCode, Settings2, Eye, X, Copy, Save, Download, Maximize2, Minimize2 } from "lucide-react";
+import { MessageSquarePlus, GripVertical, Trash2, Loader2, Pencil, ArrowLeft, FileCode, Settings2, Eye, X, Copy, Save, Download, Maximize2, Minimize2 } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -40,23 +40,87 @@ import {
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
-  verticalListSortingStrategy,
+  rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ProjectSettingsPanel } from "./project-settings-panel";
+import { ProjectTimelinePanel } from "./project-timeline-panel";
+import { ProjectDesignPanel } from "./project-design-panel";
 import { ConversationNavMenuPanel } from "./conversation-nav-menu-panel";
 import { MermaidPreview } from "@/components/canvas/mermaid-preview";
 import { SandpackProvider, SandpackLayout, SandpackPreview, SandpackCodeEditor, useSandpack } from "@codesandbox/sandpack-react";
 import { generateSandpackFiles } from "@/lib/sandpack-files";
 
+export type ProjectSidebarTab = "conversations" | "resources" | "design" | "timeline" | "settings";
+
+function ThumbnailLightbox({
+  imageUrl,
+  loading,
+  pageName,
+  onClose,
+}: {
+  imageUrl?: string;
+  loading?: boolean;
+  pageName: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`缩略图放大: ${pageName}`}
+    >
+      <div
+        className="absolute inset-0 bg-black/70"
+        aria-hidden="true"
+      />
+      <div
+        className="relative z-10 max-w-[90vw] max-h-[90vh] flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {loading ? (
+          <Loader2 size={48} className="animate-spin text-white" />
+        ) : imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={pageName}
+            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+          />
+        ) : (
+          <p className="text-sm text-white/80">加载中...</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface ProjectSidebarProps {
   /** When on project route, pass projectId from URL so sidebar uses it */
   projectIdFromRoute?: string | null;
   /** Initial tab when entering from project list (e.g. ?tab=resources) */
-  initialTab?: "conversations" | "resources" | "design";
+  initialTab?: ProjectSidebarTab;
+  /** Controlled mode: current tab from parent */
+  activeTab?: ProjectSidebarTab;
+  /** Controlled mode: called when tab changes */
+  onTabChange?: (tab: ProjectSidebarTab) => void;
+  /** Main content when on Chat tab (conversation list shown on left, this on right) */
+  children?: React.ReactNode;
 }
 
-interface SortablePageRowProps {
+interface SortablePageCardProps {
   page: Page;
   projectIdFromRoute: string | null | undefined;
   screenshotLoadingPageIds: Set<string>;
@@ -65,10 +129,14 @@ interface SortablePageRowProps {
   onDelete: (e: React.MouseEvent, id: string) => void;
   onCopy: (e: React.MouseEvent, code: string) => void;
   onSettingsClick: (pageId: string, rect: { top: number; left: number }) => void;
+  onThumbnailClick?: (pageId: string, pageName: string) => void;
   getBaseUrl: () => string;
+  thumbnailUrl?: string;
+  thumbnailLoading?: boolean;
+  onFetchThumbnail?: (pageId: string) => void;
 }
 
-function SortablePageRow({
+function SortablePageCard({
   page,
   projectIdFromRoute,
   screenshotLoadingPageIds,
@@ -77,144 +145,203 @@ function SortablePageRow({
   onDelete,
   onCopy,
   onSettingsClick,
+  onThumbnailClick,
   getBaseUrl,
-}: SortablePageRowProps) {
+  thumbnailUrl,
+  thumbnailLoading,
+  onFetchThumbnail,
+}: SortablePageCardProps) {
+  useEffect(() => {
+    if ((page.code_language === "tsx" || page.code_language === "mermaid") && onFetchThumbnail && !thumbnailUrl && !thumbnailLoading) {
+      onFetchThumbnail(page.id);
+    }
+  }, [page.id, page.code_language, onFetchThumbnail, thumbnailUrl, thumbnailLoading]);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: page.id,
   });
+  const resourceType =
+    page.code_language === "mermaid"
+      ? { label: "Diagram", color: "#10b981", bgColor: "rgba(16,185,129,0.15)" }
+      : page.code_language === "tsx"
+        ? { label: "Page", color: "#3b82f6", bgColor: "rgba(59,130,246,0.15)" }
+        : { label: page.code_language, color: "var(--gen-muted-fg)", bgColor: "var(--gen-muted)" };
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    color: "var(--gen-muted-fg)",
+    borderColor: "var(--gen-border)",
+    background: "var(--gen-background)",
   };
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="group flex items-center gap-2 px-3 py-2 rounded-lg"
+      className="group rounded-lg overflow-hidden border flex flex-col"
     >
-      <button
-        {...attributes}
-        {...listeners}
-        className="p-1 rounded cursor-grab active:cursor-grabbing touch-none"
-        style={{ color: "var(--gen-muted-fg)" }}
-        title="拖拽排序"
+      {/* Thumbnail area */}
+      <div
+        role={(page.code_language === "tsx" || page.code_language === "mermaid") && onThumbnailClick ? "button" : undefined}
+        tabIndex={(page.code_language === "tsx" || page.code_language === "mermaid") && onThumbnailClick ? 0 : undefined}
+        onClick={
+          (page.code_language === "tsx" || page.code_language === "mermaid") && onThumbnailClick
+            ? (e) => {
+                e.stopPropagation();
+                onThumbnailClick(page.id, page.name || "page");
+              }
+            : undefined
+        }
+        onKeyDown={
+          (page.code_language === "tsx" || page.code_language === "mermaid") && onThumbnailClick
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onThumbnailClick(page.id, page.name || "page");
+                }
+              }
+            : undefined
+        }
+        className={`relative aspect-video flex items-center justify-center flex-shrink-0 ${
+          (page.code_language === "tsx" || page.code_language === "mermaid") && onThumbnailClick ? "cursor-pointer" : ""
+        }`}
+        style={{
+          background: "var(--gen-muted)",
+          borderBottom: "1px solid var(--gen-border)",
+        }}
       >
-        <GripVertical size={12} />
-      </button>
-      <FileCode size={12} style={{ color: "var(--gen-muted-fg)" }} />
-      <span className="flex-1 truncate text-xs" style={{ color: "var(--gen-muted-fg)" }}>
-        {page.name}
-      </span>
-      {(() => {
-        const resourceType =
-          page.code_language === "mermaid"
-            ? { label: "Diagram", color: "#10b981", bgColor: "rgba(16,185,129,0.15)" }
-            : page.code_language === "tsx"
-              ? { label: "Page", color: "#3b82f6", bgColor: "rgba(59,130,246,0.15)" }
-              : { label: page.code_language, color: "var(--gen-muted-fg)", bgColor: "var(--gen-muted)" };
-        return (
+        <button
+          {...attributes}
+          {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-1 left-1 z-10 p-1 rounded cursor-grab active:cursor-grabbing touch-none opacity-60 hover:opacity-100 transition-opacity"
+          style={{ color: "var(--gen-muted-fg)", background: "var(--gen-background)" }}
+          title="拖拽排序"
+        >
+          <GripVertical size={12} />
+        </button>
+        {(page.code_language === "tsx" || page.code_language === "mermaid") ? (
+          thumbnailLoading ? (
+            <Loader2 size={20} className="animate-spin" style={{ color: "var(--gen-muted-fg)" }} />
+          ) : thumbnailUrl ? (
+            <img src={thumbnailUrl} alt="" className="w-full h-full object-cover pointer-events-none" />
+          ) : page.code_language === "mermaid" ? (
+            <div className="w-full h-full flex items-center justify-center" style={{ background: "rgba(16,185,129,0.15)" }}>
+              <FileCode size={24} style={{ color: "#10b981" }} />
+            </div>
+          ) : (
+            <FileCode size={24} style={{ color: "var(--gen-muted-fg)" }} />
+          )
+        ) : (
+          <FileCode size={24} style={{ color: "var(--gen-muted-fg)" }} />
+        )}
+      </div>
+      {/* Card body */}
+      <div className="p-2 flex-1 min-w-0 flex flex-col gap-1.5">
+        <p className="text-xs font-medium truncate" style={{ color: "var(--gen-foreground)" }}>
+          {page.name}
+        </p>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <span
             className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
             style={{ color: resourceType.color, background: resourceType.bgColor }}
           >
             {resourceType.label}
           </span>
-        );
-      })()}
-      {(page.code_language === "tsx" || page.code_language === "mermaid") && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onPreview(page);
-          }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-          style={{ color: "var(--gen-muted-fg)" }}
-          title="Preview"
-        >
-          <Eye size={12} />
-        </button>
-      )}
-      {page.code_language === "tsx" && (
-        <button
-          onClick={async (e) => {
-              e.stopPropagation();
-              if (!projectIdFromRoute) return;
-              setScreenshotLoadingPageIds((prev) => new Set(prev).add(page.id));
-              try {
-                const res = await fetch(
-                  `${getBaseUrl()}/api/projects/${encodeURIComponent(projectIdFromRoute)}/pages/${encodeURIComponent(page.id)}/screenshot`
-                );
-                if (!res.ok) throw new Error(res.statusText);
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${(page.name || "page").replace(/[/\\?%*:|"<>]/g, "-")}.png`;
-                a.click();
-                URL.revokeObjectURL(url);
-                toast.success("截图已下载");
-              } catch {
-                toast.error("截图下载失败");
-              } finally {
-                setScreenshotLoadingPageIds((prev) => {
-                  const next = new Set(prev);
-                  next.delete(page.id);
-                  return next;
-                });
-              }
-            }}
-            disabled={screenshotLoadingPageIds.has(page.id)}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity disabled:opacity-70"
-            style={{ color: "var(--gen-muted-fg)" }}
-            title="下载截图"
-          >
-            {screenshotLoadingPageIds.has(page.id) ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <Download size={12} />
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {(page.code_language === "tsx" || page.code_language === "mermaid") && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPreview(page);
+                }}
+                className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                style={{ color: "var(--gen-muted-fg)" }}
+                title="Preview"
+              >
+                <Eye size={12} />
+              </button>
             )}
-          </button>
-      )}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onCopy(e, page.code_block);
-        }}
-        className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-        style={{ color: "var(--gen-muted-fg)" }}
-        title="复制代码"
-      >
-        <Copy size={12} />
-      </button>
-      {page.code_language === "tsx" && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            onSettingsClick(page.id, { top: rect.bottom + 4, left: rect.right + 4 });
-          }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-          style={{ color: "var(--gen-muted-fg)" }}
-          title="设置默认菜单"
-        >
-          <Settings2 size={12} />
-        </button>
-      )}
-      <button
-        onClick={(e) => onDelete(e, page.id)}
-        className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-        style={{ color: "var(--gen-muted-fg)" }}
-        title="Delete"
-      >
-        <Trash2 size={12} />
-      </button>
+            {(page.code_language === "tsx" || page.code_language === "mermaid") && (
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (!projectIdFromRoute) return;
+                  setScreenshotLoadingPageIds((prev) => new Set(prev).add(page.id));
+                  try {
+                    const res = await fetch(
+                      `${getBaseUrl()}/api/projects/${encodeURIComponent(projectIdFromRoute)}/pages/${encodeURIComponent(page.id)}/screenshot`
+                    );
+                    if (!res.ok) throw new Error(res.statusText);
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `${(page.name || "page").replace(/[/\\?%*:|"<>]/g, "-")}.png`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast.success("截图已下载");
+                  } catch {
+                    toast.error("截图下载失败");
+                  } finally {
+                    setScreenshotLoadingPageIds((prev) => {
+                      const next = new Set(prev);
+                      next.delete(page.id);
+                      return next;
+                    });
+                  }
+                }}
+                disabled={screenshotLoadingPageIds.has(page.id)}
+                className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors disabled:opacity-70"
+                style={{ color: "var(--gen-muted-fg)" }}
+                title="下载截图"
+              >
+                {screenshotLoadingPageIds.has(page.id) ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Download size={12} />
+                )}
+              </button>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopy(e, page.code_block);
+              }}
+              className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+              style={{ color: "var(--gen-muted-fg)" }}
+              title="复制代码"
+            >
+              <Copy size={12} />
+            </button>
+            {page.code_language === "tsx" && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  onSettingsClick(page.id, { top: rect.bottom + 4, left: rect.right + 4 });
+                }}
+                className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                style={{ color: "var(--gen-muted-fg)" }}
+                title="设置默认菜单"
+              >
+                <Settings2 size={12} />
+              </button>
+            )}
+            <button
+              onClick={(e) => onDelete(e, page.id)}
+              className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+              style={{ color: "var(--gen-muted-fg)" }}
+              title="Delete"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSidebarProps = {}) {
+export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: controlledTab, onTabChange, children }: ProjectSidebarProps = {}) {
   const {
     projectId,
     conversationId,
@@ -243,8 +370,15 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
     theme,
   } = useAppStore();
 
-  const [collapsed, setCollapsed] = useState(false);
-  const [activeTab, setActiveTab] = useState<"conversations" | "resources" | "design">(initialTab ?? "conversations");
+  const [internalTab, setInternalTab] = useState<ProjectSidebarTab>(initialTab ?? "conversations");
+  const activeTab = controlledTab ?? internalTab;
+  const setActiveTab = useCallback(
+    (tab: ProjectSidebarTab) => {
+      if (onTabChange) onTabChange(tab);
+      else setInternalTab(tab);
+    },
+    [onTabChange]
+  );
   const [projects, setProjects] = useState<Project[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [pages, setPages] = useState<Page[]>([]);
@@ -261,11 +395,70 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
   const [pageSettingsPopoverRect, setPageSettingsPopoverRect] = useState<{ top: number; left: number } | null>(null);
   const [projectForPages, setProjectForPages] = useState<Project | null>(null);
   const [screenshotLoadingPageIds, setScreenshotLoadingPageIds] = useState<Set<string>>(new Set());
+  const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
+  const [thumbnailLoadingPageIds, setThumbnailLoadingPageIds] = useState<Set<string>>(new Set());
+  const [lightboxPageId, setLightboxPageId] = useState<string | null>(null);
+  const [lightboxPageName, setLightboxPageName] = useState<string>("");
 
-  const SIDEBAR_MIN = 160;
-  const SIDEBAR_MAX = 400;
-  const SIDEBAR_DEFAULT = 220;
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const thumbnailRequestedRef = useRef<Set<string>>(new Set());
+  const thumbnailUrlsRef = useRef<Set<string>>(new Set());
+  const fetchThumbnail = useCallback(
+    async (pageId: string) => {
+      const pid = projectIdFromRoute ?? projectId;
+      if (!pid || thumbnailRequestedRef.current.has(pageId)) return;
+      thumbnailRequestedRef.current.add(pageId);
+      setThumbnailLoadingPageIds((prev) => new Set(prev).add(pageId));
+      try {
+        const res = await fetch(
+          `${getBaseUrl()}/api/projects/${encodeURIComponent(pid)}/pages/${encodeURIComponent(pageId)}/screenshot`
+        );
+        if (!res.ok) throw new Error(res.statusText);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        thumbnailUrlsRef.current.add(url);
+        setThumbnailUrls((prev) => ({ ...prev, [pageId]: url }));
+      } catch {
+        // Silently fail for thumbnails
+      } finally {
+        setThumbnailLoadingPageIds((prev) => {
+          const next = new Set(prev);
+          next.delete(pageId);
+          return next;
+        });
+      }
+    },
+    [projectIdFromRoute, projectId]
+  );
+
+  // Revoke thumbnail object URLs and reset when leaving Resources tab or project changes
+  const prevProjectIdRefForThumb = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeTab !== "resources") {
+      thumbnailUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      thumbnailUrlsRef.current.clear();
+      setThumbnailUrls({});
+      thumbnailRequestedRef.current.clear();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (projectIdFromRoute && prevProjectIdRefForThumb.current !== projectIdFromRoute) {
+      prevProjectIdRefForThumb.current = projectIdFromRoute;
+      thumbnailUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      thumbnailUrlsRef.current.clear();
+      setThumbnailUrls({});
+      thumbnailRequestedRef.current.clear();
+    } else if (projectIdFromRoute) {
+      prevProjectIdRefForThumb.current = projectIdFromRoute;
+    }
+  }, [projectIdFromRoute]);
+
+  useEffect(() => {
+    return () => {
+      thumbnailUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      thumbnailUrlsRef.current.clear();
+    };
+  }, []);
 
   const sortableSensors = useSensors(
     useSensor(PointerSensor),
@@ -273,62 +466,8 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
   );
 
   useEffect(() => {
-    const stored = localStorage.getItem("genview-sidebar-width");
-    if (stored) {
-      const w = parseInt(stored, 10);
-      if (!isNaN(w)) {
-        setSidebarWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, w)));
-      }
-    }
-  }, []);
-  const [resizing, setResizing] = useState(false);
-  const resizeStartXRef = useRef(0);
-  const resizeStartWidthRef = useRef(SIDEBAR_DEFAULT);
-  const resizeCurrentWidthRef = useRef(sidebarWidth);
-
-  const handleResizeStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setResizing(true);
-    resizeStartXRef.current = e.clientX;
-    resizeStartWidthRef.current = sidebarWidth;
-  };
-
-  useEffect(() => {
-    resizeCurrentWidthRef.current = sidebarWidth;
-  }, [sidebarWidth]);
-
-  useEffect(() => {
-    if (!resizing) return;
-    const onMove = (e: MouseEvent) => {
-      const delta = e.clientX - resizeStartXRef.current;
-      const newWidth = Math.max(
-        SIDEBAR_MIN,
-        Math.min(SIDEBAR_MAX, resizeStartWidthRef.current + delta)
-      );
-      resizeCurrentWidthRef.current = newWidth;
-      setSidebarWidth(newWidth);
-    };
-    const onUp = () => {
-      setResizing(false);
-      localStorage.setItem("genview-sidebar-width", String(resizeCurrentWidthRef.current));
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-    return () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-  }, [resizing]);
-
-  useEffect(() => {
-    if (initialTab) setActiveTab(initialTab);
-  }, [initialTab]);
+    if (!onTabChange && initialTab) setInternalTab(initialTab);
+  }, [initialTab, onTabChange]);
 
   // Click outside to close nav menu popover
   useEffect(() => {
@@ -711,91 +850,148 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
     }
   };
 
-  if (collapsed) {
-    return (
-      <div
-        className="flex flex-col items-center py-2 flex-shrink-0"
-        style={{ width: 40, borderRight: "1px solid var(--gen-border)" }}
-      >
-        <button
-          onClick={() => setCollapsed(false)}
-          className="p-2 rounded-md transition-colors"
-          style={{ color: "var(--gen-muted-fg)" }}
-          title="Expand sidebar"
-        >
-          <ChevronRight size={18} />
-        </button>
-      </div>
-    );
-  }
+  const tabBtn = (tab: ProjectSidebarTab, label: string) => (
+    <button
+      key={tab}
+      onClick={() => setActiveTab(tab)}
+      className={`px-2 py-1 text-xs rounded ${activeTab === tab ? "font-medium" : ""}`}
+      style={{
+        color: activeTab === tab ? "var(--gen-foreground)" : "var(--gen-muted-fg)",
+        background: activeTab === tab ? "var(--gen-muted)" : "transparent",
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  const showDropdown = ["resources", "timeline", "settings", "design"].includes(activeTab);
+  const isNonChatTab = ["resources", "timeline", "settings", "design"].includes(activeTab);
+  const isChatTab = activeTab === "conversations";
 
   return (
     <div
-      className="flex flex-col flex-shrink-0 overflow-hidden relative h-full"
-      style={{ width: sidebarWidth, borderRight: "1px solid var(--gen-border)" }}
+      className={`flex flex-col w-full ${isNonChatTab || isChatTab ? "flex-1 min-h-0" : "flex-shrink-0"}`}
+      style={{ borderBottom: isChatTab ? undefined : "1px solid var(--gen-border)" }}
     >
-      <div
-        className="flex items-center justify-between px-3 py-2 flex-shrink-0"
-        style={{ borderBottom: "1px solid var(--gen-border)" }}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          {projectIdFromRoute && (
-            <Link
-              href="/"
-              className="p-1 rounded transition-colors flex-shrink-0"
-              style={{ color: "var(--gen-muted-fg)" }}
-              title="Back to projects"
-            >
-              <ArrowLeft size={14} />
-            </Link>
-          )}
-          <div className="flex gap-0.5">
-            <button
-              onClick={() => setActiveTab("conversations")}
-              className={`px-2 py-1 text-xs rounded ${activeTab === "conversations" ? "font-medium" : ""}`}
-              style={{
-                color: activeTab === "conversations" ? "var(--gen-foreground)" : "var(--gen-muted-fg)",
-                background: activeTab === "conversations" ? "var(--gen-muted)" : "transparent",
-              }}
-            >
-              Chat
-            </button>
-            <button
-              onClick={() => setActiveTab("resources")}
-              className={`px-2 py-1 text-xs rounded ${activeTab === "resources" ? "font-medium" : ""}`}
-              style={{
-                color: activeTab === "resources" ? "var(--gen-foreground)" : "var(--gen-muted-fg)",
-                background: activeTab === "resources" ? "var(--gen-muted)" : "transparent",
-              }}
-            >
-              Resources
-            </button>
-            {projectId && (
-              <Link
-                href={`/projects/${projectId}/design`}
-                className={`px-2 py-1 text-xs rounded no-underline ${activeTab === "design" ? "font-medium" : ""}`}
-                style={{
-                  color: activeTab === "design" ? "var(--gen-foreground)" : "var(--gen-muted-fg)",
-                  background: activeTab === "design" ? "var(--gen-muted)" : "transparent",
-                }}
-              >
-                Design
-              </Link>
-            )}
-          </div>
+      <div className="flex items-center gap-2 px-4 py-2 flex-shrink-0 min-w-0" style={isChatTab ? { borderBottom: "1px solid var(--gen-border)" } : undefined}>
+        {projectIdFromRoute && (
+          <Link
+            href="/"
+            className="p-1 rounded transition-colors flex-shrink-0"
+            style={{ color: "var(--gen-muted-fg)" }}
+            title="Back to projects"
+          >
+            <ArrowLeft size={14} />
+          </Link>
+        )}
+        <div className="flex gap-0.5 flex-wrap">
+          {tabBtn("conversations", "Chat")}
+          {tabBtn("resources", "Resources")}
+          {projectId && tabBtn("design", "Design")}
+          {tabBtn("timeline", "时间线")}
+          {tabBtn("settings", "设置")}
         </div>
-        <button
-          onClick={() => setCollapsed(true)}
-          className="p-1 rounded transition-colors"
-          style={{ color: "var(--gen-muted-fg)" }}
-          title="Collapse sidebar"
-        >
-          <ChevronLeft size={16} />
-        </button>
       </div>
 
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-2">
+      {isChatTab ? (
+        <div className="flex flex-1 min-h-0 min-w-0">
+          <div
+            className="flex flex-col w-48 md:w-56 flex-shrink-0 overflow-y-auto px-3 py-3"
+            style={{ borderRight: "1px solid var(--gen-border)", background: "var(--gen-background)" }}
+          >
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 size={20} className="animate-spin" style={{ color: "var(--gen-primary)" }} />
+              </div>
+            ) : error ? (
+              <p className="text-xs py-4" style={{ color: "var(--gen-muted-fg)" }}>{error}</p>
+            ) : (
+              <>
+                <button
+                  onClick={handleNewConversation}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors mb-2"
+                  style={{ background: "var(--gen-primary)", color: "#fff" }}
+                >
+                  <MessageSquarePlus size={14} />
+                  New Conversation
+                </button>
+                <div className="space-y-0.5">
+                  {conversations.map((c) => (
+                    <div
+                      key={c.id}
+                      onClick={() => !editingId && handleSelectConversation(c.id)}
+                      className="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+                      style={{
+                        background: conversationId === c.id ? "var(--gen-muted)" : "transparent",
+                        color: conversationId === c.id ? "var(--gen-foreground)" : "var(--gen-muted-fg)",
+                      }}
+                    >
+                      {editingId === c.id ? (
+                        <input
+                          className="flex-1 min-w-0 text-xs px-2 py-1 rounded border"
+                          style={{ background: "var(--gen-background)", color: "var(--gen-foreground)", borderColor: "var(--gen-border)" }}
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onBlur={handleSaveEdit}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter") handleSaveEdit();
+                            if (e.key === "Escape") handleCancelEdit();
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                        />
+                      ) : (
+                        <>
+                          <span className="flex-1 truncate text-xs">{c.title}</span>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const target = e.currentTarget as HTMLElement;
+                              await handleSelectConversation(c.id);
+                              const rect = target.getBoundingClientRect();
+                              setNavMenuPopoverRect({ top: rect.bottom + 4, left: rect.right + 4 });
+                              setNavMenuOpenForConvId(c.id);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
+                            style={{ color: "var(--gen-muted-fg)" }}
+                            title="Navigation Menu"
+                          >
+                            <Settings2 size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => handleStartEdit(e, c)}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
+                            style={{ color: "var(--gen-muted-fg)" }}
+                            title="Rename"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteConversation(e, c.id)}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
+                            style={{ color: "var(--gen-muted-fg)" }}
+                            title="Delete"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+            {children}
+          </div>
+        </div>
+      ) : showDropdown ? (
+        <div
+          className={`overflow-y-auto px-4 py-3 min-w-0 ${isNonChatTab ? "flex-1 min-h-0" : "flex-shrink-0"}`}
+          style={isNonChatTab ? { borderTop: "1px solid var(--gen-border)", background: "var(--gen-background)" } : { maxHeight: "50vh", borderTop: "1px solid var(--gen-border)", background: "var(--gen-background)" }}
+        >
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 size={20} className="animate-spin" style={{ color: "var(--gen-primary)" }} />
@@ -804,9 +1000,15 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
             <p className="text-xs py-4" style={{ color: "var(--gen-muted-fg)" }}>
               {error}
             </p>
-          ) : activeTab === "resources" ? (
-            <>
-              <div className="space-y-0.5">
+          ) : activeTab === "settings" ? (
+            <ProjectSettingsPanel key="settings" />
+          ) : activeTab === "timeline" ? (
+            <ProjectTimelinePanel key="timeline" projectId={projectIdFromRoute ?? projectId} />
+          ) : activeTab === "design" ? (
+            <ProjectDesignPanel key="design" projectId={projectIdFromRoute ?? projectId} />
+          ) : (
+            <Fragment key="resources">
+              <div className={pages.length === 0 ? "" : "grid grid-cols-4 gap-3"}>
                 {pages.length === 0 ? (
                   <p className="text-xs py-4" style={{ color: "var(--gen-muted-fg)" }}>
                     No resources yet. Save from a conversation.
@@ -817,9 +1019,9 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
                     collisionDetection={closestCenter}
                     onDragEnd={handleDragEnd}
                   >
-                    <SortableContext items={pages.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                    <SortableContext items={pages.map((p) => p.id)} strategy={rectSortingStrategy}>
                       {pages.map((p) => (
-                        <SortablePageRow
+                        <SortablePageCard
                           key={p.id}
                           page={p}
                           projectIdFromRoute={projectIdFromRoute}
@@ -827,6 +1029,16 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
                           setScreenshotLoadingPageIds={setScreenshotLoadingPageIds}
                           onPreview={handlePreviewPage}
                           onDelete={handleDeletePage}
+                          onThumbnailClick={(pageId, pageName) => {
+                            setLightboxPageId(pageId);
+                            setLightboxPageName(pageName);
+                            if (!thumbnailUrls[pageId] && !thumbnailLoadingPageIds.has(pageId)) {
+                              fetchThumbnail(pageId);
+                            }
+                          }}
+                          thumbnailUrl={thumbnailUrls[p.id]}
+                          thumbnailLoading={thumbnailLoadingPageIds.has(p.id)}
+                          onFetchThumbnail={fetchThumbnail}
                           onCopy={async (e, code) => {
                             e.stopPropagation();
                             try {
@@ -847,100 +1059,10 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
                   </DndContext>
                 )}
               </div>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={handleNewConversation}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors mb-2"
-                style={{
-                  background: "var(--gen-primary)",
-                  color: "#fff",
-                }}
-              >
-                <MessageSquarePlus size={14} />
-                New Conversation
-              </button>
-              <div className="space-y-0.5">
-                {conversations.map((c) => (
-                  <div
-                    key={c.id}
-                    onClick={() => !editingId && handleSelectConversation(c.id)}
-                    className="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
-                    style={{
-                      background: conversationId === c.id ? "var(--gen-muted)" : "transparent",
-                      color: conversationId === c.id ? "var(--gen-foreground)" : "var(--gen-muted-fg)",
-                    }}
-                  >
-                    {editingId === c.id ? (
-                      <input
-                        className="flex-1 min-w-0 text-xs px-2 py-1 rounded border"
-                        style={{
-                          background: "var(--gen-background)",
-                          color: "var(--gen-foreground)",
-                          borderColor: "var(--gen-border)",
-                        }}
-                        value={editingTitle}
-                        onChange={(e) => setEditingTitle(e.target.value)}
-                        onBlur={handleSaveEdit}
-                        onKeyDown={(e) => {
-                          e.stopPropagation();
-                          if (e.key === "Enter") handleSaveEdit();
-                          if (e.key === "Escape") handleCancelEdit();
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        autoFocus
-                      />
-                    ) : (
-                    <>
-                        <span className="flex-1 truncate text-xs">{c.title}</span>
-                          <button
-                          onClick={async (e) => {
-                          e.stopPropagation();
-                          const target = e.currentTarget as HTMLElement;
-                          await handleSelectConversation(c.id);
-                          const rect = target.getBoundingClientRect();
-                          setNavMenuPopoverRect({ top: rect.bottom + 4, left: rect.right + 4 });
-                          setNavMenuOpenForConvId(c.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-                          style={{ color: "var(--gen-muted-fg)" }}
-                          title="Navigation Menu"
-                        >
-                          <Settings2 size={12} />
-                        </button>
-                        <button
-                          onClick={(e) => handleStartEdit(e, c)}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-                        style={{ color: "var(--gen-muted-fg)" }}
-                          title="Rename"
-                        >
-                          <Pencil size={12} />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteConversation(e, c.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-                        style={{ color: "var(--gen-muted-fg)" }}
-                          title="Delete"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
+            </Fragment>
           )}
         </div>
-        <ProjectSettingsPanel />
-      </div>
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        onMouseDown={handleResizeStart}
-        className="absolute top-0 bottom-0 right-0 w-1 cursor-col-resize z-10"
-      />
+      ) : null}
       {navMenuOpenForConvId &&
         navMenuPopoverRect &&
         typeof document !== "undefined" &&
@@ -1016,6 +1138,22 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab }: ProjectSideba
             onSaved={(updatedPage) => {
               setPages((prev) => prev.map((p) => (p.id === updatedPage.id ? updatedPage : p)));
               setPreviewPage(updatedPage);
+            }}
+          />,
+          document.body
+        )}
+
+      {/* Thumbnail Lightbox */}
+      {lightboxPageId &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <ThumbnailLightbox
+            imageUrl={thumbnailUrls[lightboxPageId]}
+            loading={thumbnailLoadingPageIds.has(lightboxPageId)}
+            pageName={lightboxPageName}
+            onClose={() => {
+              setLightboxPageId(null);
+              setLightboxPageName("");
             }}
           />,
           document.body

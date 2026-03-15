@@ -3,7 +3,7 @@
 import { useAppStore, type NavLayout, type IndustryTheme } from "@/store/app-store";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { ChevronDown, ChevronRight, Settings2, Upload, Download, Save, Plus, Trash2, Eye, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Upload, Download, Save, Plus, Trash2, Eye, X } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { IconPicker } from "@/components/ui/icon-picker";
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -30,7 +30,6 @@ function getIconComp(name: string): IconComp | null {
 }
 
 export function ProjectSettingsPanel() {
-  const [collapsed, setCollapsed] = useState(true);
   const [navPreviewOpen, setNavPreviewOpen] = useState(false);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const {
@@ -187,25 +186,10 @@ export function ProjectSettingsPanel() {
 
   return (
     <div
-      className="flex-shrink-0 border-t"
+      className="flex-shrink-0"
       style={{ borderColor: "var(--gen-border)" }}
     >
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium transition-colors"
-        style={{ color: "var(--gen-foreground)" }}
-      >
-        <Settings2 size={14} />
-        <span>项目设置</span>
-        {collapsed ? (
-          <ChevronRight size={12} className="ml-auto" />
-        ) : (
-          <ChevronDown size={12} className="ml-auto" />
-        )}
-      </button>
-
-      {!collapsed && (
-        <div className="px-3 pb-3 space-y-2 max-h-[50vh] overflow-y-auto">
+      <div className="px-3 pb-3 space-y-2">
           <div>
             <label className="text-[10px] font-medium mb-0.5 block" style={{ color: "var(--gen-muted-fg)" }}>
               App Name
@@ -581,7 +565,6 @@ export function ProjectSettingsPanel() {
             保存
           </button>
         </div>
-      )}
 
       {/* Navigation Preview Modal */}
       {navPreviewOpen && (

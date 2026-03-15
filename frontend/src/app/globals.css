@@ -95,6 +95,15 @@ body {
   background: var(--gen-muted-fg);
 }
 
+/* Hide scrollbar but keep scroll */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Theme overrides - applied via data attribute */
 [data-theme="dark-dashboard"] {
   --gen-primary: #8b5cf6;

@@ -12,6 +12,8 @@ from app.config import settings
 from app.database import get_db
 from app.models import Message
 from app.schemas import ChatRequest
+from app.services.memos_client import add_message as memos_add_message
+from app.services.memos_client import search_memory as memos_search_memory
 
 router = APIRouter()
 logger = logging.getLogger("genview.chat")
@@ -159,6 +161,18 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
             logger.info(
                 f"[Chat] Context truncated | total={original_len} messages, kept last {max_rounds} rounds ({len(converted)} msgs)"
             )
+
+    # MemOS: 检索相关记忆并注入 system prompt
+    if settings.memos_enabled and req.conversation_id and converted:
+        last_user = next((m for m in reversed(converted) if m.get("role") == "user"), None)
+        if last_user:
+            query = last_user.get("content", "").strip()
+            if query:
+                memory_text = await memos_search_memory(req.conversation_id, query)
+                if memory_text:
+                    system_prompt += f"\n\n{memory_text}"
+                    logger.info(f"[Chat] MemOS memory injected | conversation_id={req.conversation_id}")
+
     openai_messages = [{"role": "system", "content": system_prompt}]
     openai_messages.extend(converted)
 
@@ -339,6 +353,16 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
             ))
             await db.commit()
             logger.info(f"[Chat] Message saved to DB | conversation_id={req.conversation_id}")
+
+        # MemOS: 将本轮对话写入记忆
+        if settings.memos_enabled and req.conversation_id and full_text:
+            last_user = next((m for m in reversed(converted) if m.get("role") == "user"), None)
+            if last_user:
+                to_add = [
+                    {"role": "user", "content": last_user.get("content", "")},
+                    {"role": "assistant", "content": full_text},
+                ]
+                await memos_add_message(req.conversation_id, to_add)
 
     return StreamingResponse(
         generate(),

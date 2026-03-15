@@ -249,6 +249,101 @@ export async function deletePage(projectId: string, pageId: string): Promise<voi
   if (!res.ok) throw new Error(`Failed to delete page: ${res.statusText}`);
 }
 
+export interface TimelineAttachment {
+  name: string;
+  url: string;
+}
+
+export interface TimelineEvent {
+  id: string;
+  project_id: string;
+  type: "phase" | "custom";
+  phase_key?: string | null;
+  phase_label?: string | null;
+  status?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  title?: string | null;
+  event_date?: string | null;
+  event_time?: string | null;
+  description?: string | null;
+  outcome?: string | null;
+  participants?: string | null;
+  tags?: string[] | null;
+  attachments?: TimelineAttachment[] | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listTimeline(projectId: string): Promise<TimelineEvent[]> {
+  const res = await fetch(`${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/timeline`);
+  if (!res.ok) throw new Error(`Failed to list timeline: ${res.statusText}`);
+  return res.json();
+}
+
+export async function initTimeline(projectId: string): Promise<TimelineEvent[]> {
+  const res = await fetch(`${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/timeline/init`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Failed to init timeline: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createTimelineEvent(
+  projectId: string,
+  data: Partial<TimelineEvent> & { type: "phase" | "custom" }
+): Promise<TimelineEvent> {
+  const res = await fetch(`${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/timeline`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to create timeline event: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateTimelineEvent(
+  projectId: string,
+  eventId: string,
+  data: Partial<TimelineEvent>
+): Promise<TimelineEvent> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/timeline/${encodeURIComponent(eventId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }
+  );
+  if (!res.ok) throw new Error(`Failed to update timeline event: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteTimelineEvent(projectId: string, eventId: string): Promise<void> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/timeline/${encodeURIComponent(eventId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) throw new Error(`Failed to delete timeline event: ${res.statusText}`);
+}
+
+export async function uploadTimelineAttachment(
+  projectId: string,
+  eventId: string,
+  file: File
+): Promise<TimelineAttachment> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/timeline/${encodeURIComponent(eventId)}/attachments`,
+    { method: "POST", body: form }
+  );
+  if (!res.ok) throw new Error(`Failed to upload attachment: ${res.statusText}`);
+  const data = await res.json();
+  return { name: data.name, url: getBaseUrl() + data.url };
+}
+
 export async function listConversations(projectId: string): Promise<Conversation[]> {
   const res = await fetch(`${getBaseUrl()}/api/conversations?project_id=${encodeURIComponent(projectId)}`);
   if (!res.ok) throw new Error(`Failed to list conversations: ${res.statusText}`);

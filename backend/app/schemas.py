@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -147,6 +147,69 @@ class PageOut(BaseModel):
     extra_files: dict | None = None
     source_conversation_id: str | None = None
     source_message_id: str | None = None
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── Timeline ──────────────────────────────────────────────
+class TimelineEventCreate(BaseModel):
+    type: str = "phase"  # phase | custom
+    # phase
+    phase_key: str | None = None
+    phase_label: str | None = None
+    status: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    # custom
+    title: str | None = None
+    event_date: date | None = None
+    event_time: str | None = None
+    description: str | None = None
+    outcome: str | None = None
+    participants: str | None = None
+    tags: list[str] | None = None
+    attachments: list[dict] | None = None  # [{"name": str, "url": str}, ...]
+    sort_order: int = 0
+
+
+class TimelineEventUpdate(BaseModel):
+    type: str | None = None
+    phase_key: str | None = None
+    phase_label: str | None = None
+    status: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    title: str | None = None
+    event_date: date | None = None
+    event_time: str | None = None
+    description: str | None = None
+    outcome: str | None = None
+    participants: str | None = None
+    tags: list[str] | None = None
+    attachments: list[dict] | None = None
+    sort_order: int | None = None
+
+
+class TimelineEventOut(BaseModel):
+    id: str
+    project_id: str
+    type: str
+    phase_key: str | None = None
+    phase_label: str | None = None
+    status: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    title: str | None = None
+    event_date: date | None = None
+    event_time: str | None = None
+    description: str | None = None
+    outcome: str | None = None
+    participants: str | None = None
+    tags: list[str] | None = None
+    attachments: list[dict] | None = None
     sort_order: int
     created_at: datetime
     updated_at: datetime

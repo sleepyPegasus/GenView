@@ -6,6 +6,7 @@ import { SandpackProvider, SandpackLayout, SandpackPreview, useSandpack } from "
 import { getProject, getPage, flattenNavConfigItems, type NavConfigItem } from "@/lib/api";
 import { generateSandpackFiles } from "@/lib/sandpack-files";
 import { ThemeInjector } from "@/components/theme-injector";
+import { MermaidPreview } from "@/components/canvas/mermaid-preview";
 import { Loader2 } from "lucide-react";
 
 function ScreenshotReadyMarker() {
@@ -78,7 +79,25 @@ export default function SinglePagePreview() {
     return () => { cancelled = true; };
   }, [projectId, pageId]);
 
-  if (loading || !project || !page || page.code_language !== "tsx") {
+  if (loading || !project || !page) {
+    return (
+      <div className="flex h-screen items-center justify-center" data-theme="modern-b2b">
+        <ThemeInjector />
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--gen-primary)" }} />
+      </div>
+    );
+  }
+
+  if (page.code_language === "mermaid") {
+    return (
+      <div className="h-screen w-screen overflow-hidden bg-white" data-theme="modern-b2b">
+        <ThemeInjector />
+        <MermaidPreview code={page.code_block} showCode={false} />
+      </div>
+    );
+  }
+
+  if (page.code_language !== "tsx") {
     return (
       <div className="flex h-screen items-center justify-center" data-theme="modern-b2b">
         <ThemeInjector />

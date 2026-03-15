@@ -2,13 +2,13 @@ import asyncio
 import logging
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import get_db
+from app.database import async_session, get_db
 from app.models import Page, Project
 from app.schemas import PageCreate, PageOut, PageUpdate
 
@@ -27,9 +27,27 @@ async def list_pages(project_id: str, db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
+async def _generate_and_save_screenshot(project_id: str, page_id: str, code_language: str) -> None:
+    """Background task: take screenshot and save to DB."""
+    await asyncio.sleep(6)
+    try:
+        png_bytes = await asyncio.to_thread(_take_screenshot_sync, project_id, page_id, code_language)
+        async with async_session() as db:
+            page = await db.get(Page, page_id)
+            if page and page.project_id == project_id:
+                page.screenshot_blob = png_bytes
+                await db.commit()
+                logger.info("Saved screenshot for page %s", page_id)
+    except Exception as e:
+        logger.warning("Background screenshot failed for %s: %s", page_id, e)
+
+
 @router.post("/{project_id}/pages", response_model=PageOut, status_code=201)
 async def create_page(
-    project_id: str, body: PageCreate, db: AsyncSession = Depends(get_db)
+    project_id: str,
+    body: PageCreate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     project = await db.get(Project, project_id)
     if not project:
@@ -47,6 +65,8 @@ async def create_page(
     db.add(page)
     await db.commit()
     await db.refresh(page)
+    if page.code_language in ("tsx", "mermaid"):
+        background_tasks.add_task(_generate_and_save_screenshot, project_id, page.id, page.code_language)
     return page
 
 
@@ -65,15 +85,24 @@ async def update_page(
     project_id: str,
     page_id: str,
     body: PageUpdate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     page = await db.get(Page, page_id)
     if not page or page.project_id != project_id:
         raise HTTPException(404, "Page not found")
-    for key, val in body.model_dump(exclude_unset=True).items():
+    body_data = body.model_dump(exclude_unset=True)
+    needs_screenshot = page.code_language in ("tsx", "mermaid") and any(
+        k in body_data for k in ("code_block", "extra_files")
+    )
+    for key, val in body_data.items():
         setattr(page, key, val)
+    if needs_screenshot:
+        page.screenshot_blob = None
     await db.commit()
     await db.refresh(page)
+    if needs_screenshot:
+        background_tasks.add_task(_generate_and_save_screenshot, project_id, page_id)
     return page
 
 
@@ -102,34 +131,30 @@ def _debug_log(hypothesis_id: str, message: str, data: dict):
         pass
 
 
-def _take_screenshot_sync(project_id: str, page_id: str) -> bytes:
+def _take_screenshot_sync(project_id: str, page_id: str, code_language: str = "tsx") -> bytes:
     """Synchronous Playwright screenshot. Run in thread pool."""
     from playwright.sync_api import sync_playwright
 
     url = f"{settings.frontend_url}/projects/{project_id}/preview/{page_id}"
     # #region agent log
-    _debug_log("H1", "screenshot_start", {"url": url, "project_id": project_id, "page_id": page_id})
+    _debug_log("H1", "screenshot_start", {"url": url, "project_id": project_id, "page_id": page_id, "code_language": code_language})
     # #endregion
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
-            page = browser.new_page(viewport={"width": 1920, "height": 1080})
-            page.goto(url, wait_until="load", timeout=60000)
+            pw_page = browser.new_page(viewport={"width": 1920, "height": 1080})
+            pw_page.goto(url, wait_until="load", timeout=60000)
             # #region agent log
-            _debug_log("H1", "after_goto", {"title": page.title(), "url_after": page.url, "content_len": len(page.content())})
+            _debug_log("H1", "after_goto", {"title": pw_page.title(), "url_after": pw_page.url, "content_len": len(pw_page.content())})
             # #endregion
-            page.wait_for_selector("iframe", state="visible", timeout=30000)
-            # #region agent log
-            iframes = page.locator("iframe").all()
-            first_src = iframes[0].get_attribute("src") if iframes else None
-            _debug_log("H2", "iframe_found", {"iframe_count": len(iframes), "first_src": first_src})
-            # #endregion
-            page.wait_for_selector('[data-sandpack-ready="true"]', state="attached", timeout=35000)
-            # #region agent log
-            _debug_log("H3", "sandpack_ready", {"ready_marker_found": True})
-            # #endregion
-            page.wait_for_timeout(2000)
-            png = page.screenshot(type="png", full_page=True)
+            if code_language == "mermaid":
+                pw_page.wait_for_selector('[data-mermaid-ready="true"]', state="attached", timeout=30000)
+                pw_page.wait_for_timeout(1500)
+            else:
+                pw_page.wait_for_selector("iframe", state="visible", timeout=30000)
+                pw_page.wait_for_selector('[data-sandpack-ready="true"]', state="attached", timeout=35000)
+                pw_page.wait_for_timeout(2000)
+            png = pw_page.screenshot(type="png", full_page=True)
             # #region agent log
             _debug_log("H3", "screenshot_taken", {"png_bytes": len(png), "viewport": {"width": 1920, "height": 1080}})
             # #endregion
@@ -143,23 +168,8 @@ def _take_screenshot_sync(project_id: str, page_id: str) -> bytes:
             browser.close()
 
 
-@router.get("/{project_id}/pages/{page_id}/screenshot")
-async def screenshot_page(
-    project_id: str, page_id: str, db: AsyncSession = Depends(get_db)
-):
-    page = await db.get(Page, page_id)
-    if not page or page.project_id != project_id:
-        raise HTTPException(404, "Page not found")
-    if page.code_language != "tsx":
-        raise HTTPException(400, "Only TSX pages can be screenshotted")
-    try:
-        png_bytes = await asyncio.to_thread(
-            _take_screenshot_sync, project_id, page_id
-        )
-    except Exception as e:
-        logger.exception("Screenshot failed: %s", e)
-        raise HTTPException(500, f"Screenshot failed: {e!s}") from e
-    filename = f"{page.name or 'page'}.png".replace("/", "-").replace("\\", "-")
+def _make_screenshot_response(png_bytes: bytes, page_name: str) -> Response:
+    filename = f"{page_name or 'page'}.png".replace("/", "-").replace("\\", "-")
     if filename.isascii():
         cd = f'attachment; filename="{filename}"'
     else:
@@ -169,3 +179,26 @@ async def screenshot_page(
         media_type="image/png",
         headers={"Content-Disposition": cd},
     )
+
+
+@router.get("/{project_id}/pages/{page_id}/screenshot")
+async def screenshot_page(
+    project_id: str, page_id: str, db: AsyncSession = Depends(get_db)
+):
+    page = await db.get(Page, page_id)
+    if not page or page.project_id != project_id:
+        raise HTTPException(404, "Page not found")
+    if page.code_language not in ("tsx", "mermaid"):
+        raise HTTPException(400, "Only TSX and Diagram pages can be screenshotted")
+    if page.screenshot_blob:
+        return _make_screenshot_response(page.screenshot_blob, page.name)
+    try:
+        png_bytes = await asyncio.to_thread(
+            _take_screenshot_sync, project_id, page_id, page.code_language
+        )
+    except Exception as e:
+        logger.exception("Screenshot failed: %s", e)
+        raise HTTPException(500, f"Screenshot failed: {e!s}") from e
+    page.screenshot_blob = png_bytes
+    await db.commit()
+    return _make_screenshot_response(png_bytes, page.name)
