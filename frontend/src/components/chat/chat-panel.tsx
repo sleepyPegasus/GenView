@@ -446,6 +446,7 @@ export function ChatPanel() {
             conversation_mode: conversationMode,
             current_code: currentCode,
             conversation_id: cid,
+            project_id: projectId ?? undefined,
           }),
           signal: controller.signal,
         });

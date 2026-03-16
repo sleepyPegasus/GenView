@@ -45,13 +45,14 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { ProjectSettingsPanel } from "./project-settings-panel";
 import { ProjectTimelinePanel } from "./project-timeline-panel";
+import { ProjectKnowledgePanel } from "./project-knowledge-panel";
 import { ProjectDesignPanel } from "./project-design-panel";
 import { ConversationNavMenuPanel } from "./conversation-nav-menu-panel";
 import { MermaidPreview } from "@/components/canvas/mermaid-preview";
 import { SandpackProvider, SandpackLayout, SandpackPreview, SandpackCodeEditor, useSandpack } from "@codesandbox/sandpack-react";
 import { generateSandpackFiles } from "@/lib/sandpack-files";
 
-export type ProjectSidebarTab = "conversations" | "resources" | "design" | "timeline" | "settings";
+export type ProjectSidebarTab = "conversations" | "resources" | "design" | "timeline" | "knowledge" | "settings";
 
 function ThumbnailLightbox({
   imageUrl,
@@ -864,8 +865,8 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
     </button>
   );
 
-  const showDropdown = ["resources", "timeline", "settings", "design"].includes(activeTab);
-  const isNonChatTab = ["resources", "timeline", "settings", "design"].includes(activeTab);
+  const showDropdown = ["resources", "timeline", "knowledge", "settings", "design"].includes(activeTab);
+  const isNonChatTab = ["resources", "timeline", "knowledge", "settings", "design"].includes(activeTab);
   const isChatTab = activeTab === "conversations";
 
   return (
@@ -889,6 +890,7 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
           {tabBtn("resources", "Resources")}
           {projectId && tabBtn("design", "Design")}
           {tabBtn("timeline", "时间线")}
+          {tabBtn("knowledge", "知识图谱")}
           {tabBtn("settings", "设置")}
         </div>
       </div>
@@ -1004,6 +1006,8 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
             <ProjectSettingsPanel key="settings" />
           ) : activeTab === "timeline" ? (
             <ProjectTimelinePanel key="timeline" projectId={projectIdFromRoute ?? projectId} />
+          ) : activeTab === "knowledge" ? (
+            <ProjectKnowledgePanel key="knowledge" projectId={projectIdFromRoute ?? projectId ?? ""} />
           ) : activeTab === "design" ? (
             <ProjectDesignPanel key="design" projectId={projectIdFromRoute ?? projectId} />
           ) : (

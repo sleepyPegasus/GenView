@@ -341,6 +341,163 @@ export async function updateTimelineEvent(
   return res.json();
 }
 
+export type KgBuildEvent = "log" | "progress" | "done" | "error";
+
+export async function buildKnowledgeGraphStream(
+  projectId: string,
+  onEvent: (event: KgBuildEvent, data: Record<string, unknown>) => void
+): Promise<{ doc_count: number }> {
+  const url = `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/build`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`Failed to build knowledge graph: ${res.statusText}`);
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: { doc_count: number } = { doc_count: 0 };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const eventMatch = part.match(/^event: (\w+)\n/m);
+      const dataMatch = part.match(/data: (.+)$/ms);
+      if (eventMatch && dataMatch) {
+        const event = eventMatch[1] as KgBuildEvent;
+        try {
+          const data = JSON.parse(dataMatch[1].trim()) as Record<string, unknown>;
+          onEvent(event, data);
+          if (event === "done") {
+            result = { doc_count: (data.doc_count as number) ?? 0 };
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+    }
+  }
+  return result;
+}
+
+export async function queryKnowledgeGraph(
+  projectId: string,
+  question: string,
+  mode?: string,
+  sessionId?: string | null
+): Promise<{ answer: string; session_id: string }> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/query`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, mode: mode ?? "hybrid", session_id: sessionId ?? undefined }),
+    }
+  );
+  if (!res.ok) throw new Error(`Failed to query knowledge graph: ${res.statusText}`);
+  const data = await res.json();
+  return { answer: data.answer ?? "", session_id: data.session_id ?? "" };
+}
+
+export interface KgQuerySessionItem {
+  id: string;
+  project_id: string;
+  title: string;
+  created_at: string | null;
+}
+
+export async function listKgQuerySessions(
+  projectId: string,
+  limit = 50
+): Promise<KgQuerySessionItem[]> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/query-sessions?limit=${limit}`
+  );
+  if (!res.ok) throw new Error("Failed to fetch query sessions");
+  return res.json();
+}
+
+export interface KgQueryMessageItem {
+  id: string;
+  project_id: string;
+  role: string;
+  content: string;
+  query_mode: string | null;
+  created_at: string | null;
+}
+
+export async function listKgQueryHistory(
+  projectId: string,
+  sessionId: string,
+  limit = 100
+): Promise<KgQueryMessageItem[]> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/query-history?session_id=${encodeURIComponent(sessionId)}&limit=${limit}`
+  );
+  if (!res.ok) throw new Error("Failed to fetch query history");
+  return res.json();
+}
+
+export interface KgBuildHistoryItem {
+  id: string;
+  project_id: string;
+  doc_count: number;
+  msg_count?: number;
+  page_count?: number;
+  timeline_count?: number;
+  node_count?: number | null;
+  edge_count?: number | null;
+  duration_seconds?: number | null;
+  status: string;
+  error: string | null;
+  created_at: string | null;
+}
+
+export async function listKgBuildHistory(
+  projectId: string,
+  limit = 20
+): Promise<KgBuildHistoryItem[]> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/build-history?limit=${limit}`
+  );
+  if (!res.ok) throw new Error("Failed to fetch build history");
+  return res.json();
+}
+
+export interface KnowledgeGraphNode {
+  id: string;
+  label: string;
+  type?: string;
+  properties: Record<string, unknown>;
+}
+
+export interface KnowledgeGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+}
+
+export interface KnowledgeGraphData {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+  is_truncated: boolean;
+}
+
+export async function getKnowledgeGraph(
+  projectId: string,
+  maxNodes = 500
+): Promise<KnowledgeGraphData> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/graph?max_nodes=${maxNodes}`
+  );
+  if (!res.ok) throw new Error(`Failed to get knowledge graph: ${res.statusText}`);
+  return res.json();
+}
+
 export async function deleteTimelineEvent(projectId: string, eventId: string): Promise<void> {
   const res = await fetch(
     `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/timeline/${encodeURIComponent(eventId)}`,

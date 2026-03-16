@@ -24,9 +24,11 @@ export default function ProjectWorkspace() {
       ? "resources"
       : tabFromUrl === "timeline"
         ? "timeline"
-        : tabFromUrl === "design"
-          ? "design"
-          : "conversations";
+        : tabFromUrl === "knowledge"
+          ? "knowledge"
+          : tabFromUrl === "design"
+            ? "design"
+            : "conversations";
   const [activeTab, setActiveTab] = useState<ProjectSidebarTab>(initialTab);
 
   useEffect(() => {
