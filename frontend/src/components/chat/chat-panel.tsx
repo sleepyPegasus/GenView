@@ -28,10 +28,12 @@ import {
   Quote,
   RotateCcw,
   Trash2,
+  History,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import * as Diff from "diff";
 
 interface ChatMessage {
   id: string;
@@ -43,6 +45,7 @@ interface ChatMessage {
   tokenCount?: number;
   inputTokenCount?: number;
   elapsed?: number;
+  isError?: boolean;
 }
 
 interface StepInfo {
@@ -56,6 +59,26 @@ interface StepInfo {
  * the Next.js rewrite proxy, which buffers SSE streams and prevents
  * real-time event delivery.
  */
+function getChatErrorInfo(
+  code: string,
+  fallbackMessage: string
+): { title: string; description: string } {
+  switch (code) {
+    case "rate_limit":
+      return { title: "请求过于频繁", description: "请稍后重试" };
+    case "invalid_api_key":
+      return { title: "API Key 无效", description: "请检查 OpenRouter 设置" };
+    case "model_error":
+      return { title: "模型返回错误", description: "可尝试切换其他模型" };
+    case "connection_error":
+      return { title: "连接失败", description: "请检查网络连接" };
+    case "timeout":
+      return { title: "请求超时", description: "请稍后重试" };
+    default:
+      return { title: "请求失败", description: fallbackMessage };
+  }
+}
+
 function getChatUrl(): string {
   if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_BACKEND_URL) {
     return `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat`;
@@ -92,6 +115,8 @@ export function ChatPanel() {
     setCurrentCode,
     setExtraFiles,
     setRenderMode,
+    pendingPromptToSend,
+    setPendingPromptToSend,
   } = useAppStore();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -101,8 +126,10 @@ export function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [visibleCount, setVisibleCount] = useState(6);
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const skipLoadForConvIdRef = useRef<string | null>(null);
+  const lastSentTextRef = useRef<string>("");
 
   const ROUND_SIZE = 6;
 
@@ -270,10 +297,18 @@ export function ChatPanel() {
                 );
               }
               break;
-            case "error":
+            case "error": {
               updated.content = m.content + `\n\n${data.message}`;
-              toast.error("AI error", { description: String(data.message) });
+              const code = (data.code as string) ?? "model_error";
+              if (code === "model_error") setModelSelectorOpen(true);
+              const { title, description } = getChatErrorInfo(code, String(data.message));
+              const textToRetry = lastSentTextRef.current;
+              toast.error(title, {
+                description,
+                action: { label: "重试", onClick: () => sendMessage(textToRetry) },
+              });
               break;
+            }
           }
           return updated;
         })
@@ -387,12 +422,14 @@ export function ChatPanel() {
               id: `assistant-${Date.now()}`,
               role: "assistant",
               content: `Failed to create session: ${msg}`,
+              isError: true,
             },
           ]);
           return;
         }
       }
 
+      lastSentTextRef.current = text;
       const userMsg: ChatMessage = {
         id: `user-${Date.now()}`,
         role: "user",
@@ -453,20 +490,30 @@ export function ChatPanel() {
 
         if (!res.ok) {
           const errText = await res.text();
-          const isRetriable = res.status >= 500 || res.status === 408;
-          toast.error(`Request failed (${res.status})`, {
-            description: errText.slice(0, 200),
-            action: isRetriable
-              ? {
-                  label: "Retry",
-                  onClick: () => sendMessage(text),
-                }
-              : undefined,
+          let errorCode = "model_error";
+          try {
+            const dataMatch = errText.match(/data:\s*(\{[^}]+\})/);
+            if (dataMatch) {
+              const data = JSON.parse(dataMatch[1]) as { code?: string };
+              errorCode = data.code ?? errorCode;
+            }
+          } catch {
+            if (res.status === 401) errorCode = "invalid_api_key";
+            else if (res.status === 429) errorCode = "rate_limit";
+          }
+          if (errorCode === "model_error") setModelSelectorOpen(true);
+          const { title, description } = getChatErrorInfo(errorCode, errText.slice(0, 200));
+          toast.error(title, {
+            description,
+            action: {
+              label: "重试",
+              onClick: () => sendMessage(text),
+            },
           });
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, content: `Error: ${res.status} - ${errText}` }
+                ? { ...m, content: `Error: ${res.status} - ${errText}`, isError: true }
                 : m
             )
           );
@@ -557,17 +604,19 @@ export function ChatPanel() {
           );
         } else {
           const msg = err instanceof Error ? err.message : "Connection error";
-          toast.error("Connection failed", {
-            description: msg,
+          const code = msg.toLowerCase().includes("timeout") ? "timeout" : "connection_error";
+          const { title, description } = getChatErrorInfo(code, msg);
+          toast.error(title, {
+            description,
             action: {
-              label: "Retry",
+              label: "重试",
               onClick: () => sendMessage(text),
             },
           });
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, content: m.content + `\n\nConnection error: ${msg}` }
+                ? { ...m, content: m.content + `\n\nConnection error: ${msg}`, isError: true }
                 : m
             )
           );
@@ -584,6 +633,15 @@ export function ChatPanel() {
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
   }, []);
+
+  // Quick-start: when RenderCanvas sets pendingPromptToSend, send it and clear
+  useEffect(() => {
+    if (pendingPromptToSend && pendingPromptToSend.trim() && !isStreaming) {
+      const text = pendingPromptToSend.trim();
+      setPendingPromptToSend(null);
+      sendMessage(text);
+    }
+  }, [pendingPromptToSend, isStreaming, setPendingPromptToSend, sendMessage]);
 
   const onSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -620,7 +678,7 @@ export function ChatPanel() {
           </div>
         )}
 
-        {visibleMessages.map((msg) => {
+        {visibleMessages.map((msg, msgIdx) => {
           if (msg.role === "user") {
             return (
               <div key={msg.id} className="flex gap-3 justify-end group">
@@ -714,11 +772,38 @@ export function ChatPanel() {
                 {/* Thinking block */}
                 {hasThinking && <ThinkingBlock text={msg.thinking!} />}
 
+                {/* Error retry button */}
+                {msg.isError && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (isStreaming) return;
+                      const idx = messages.findIndex((m) => m.id === msg.id);
+                      const prevUser = [...messages].slice(0, idx).reverse().find((m) => m.role === "user");
+                      if (!prevUser) {
+                        toast.error("无法重试");
+                        return;
+                      }
+                      const filtered = messages.filter((m) => m.id !== msg.id);
+                      setMessages(filtered);
+                      await sendMessage(prevUser.content, { messagesOverride: filtered });
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                    style={{ background: "var(--gen-primary)", color: "#fff" }}
+                  >
+                    <RotateCcw size={12} />
+                    重试
+                  </button>
+                )}
+
                 {/* Content */}
                 {(parsed.text || parsed.codeBlocks.length > 0) && (
                   <div
                     className="rounded-xl px-3.5 py-2.5 text-sm leading-relaxed"
-                    style={{ background: "var(--gen-muted)", color: "var(--gen-foreground)" }}
+                    style={{
+                      background: msg.isError ? "rgba(239,68,68,0.1)" : "var(--gen-muted)",
+                      color: msg.isError ? "#dc2626" : "var(--gen-foreground)",
+                    }}
                   >
                     {parsed.text && (
                       <div
@@ -730,34 +815,66 @@ export function ChatPanel() {
                     )}
                     {parsed.codeBlocks.length > 0 && (
                       <div className="mt-2 space-y-2">
-                        {parsed.codeBlocks.map((b, i) => (
-                          <div
-                            key={i}
-                            className="relative group rounded-lg overflow-hidden"
-                            style={{ background: "var(--gen-background)" }}
-                          >
-                            <div className="flex items-center justify-between px-2 py-1 text-xs opacity-70">
-                              <span>{b.language.toUpperCase()}</span>
-                              <button
-                                onClick={async () => {
-                                  await navigator.clipboard.writeText(b.code);
-                                  toast.success("Code copied");
-                                }}
-                                className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
-                                style={{ color: "var(--gen-muted-fg)" }}
-                                title="Copy code"
-                              >
-                                <Copy size={12} />
-                              </button>
+                        {parsed.codeBlocks.map((b, i) => {
+                          const prevAssistant = visibleMessages
+                            .slice(0, msgIdx)
+                            .reverse()
+                            .find((m) => m.role === "assistant");
+                          const prevTsx = prevAssistant
+                            ? parseResponse(prevAssistant.content).codeBlocks.filter((x) => x.language === "tsx")
+                            : [];
+                          const prevCode =
+                            b.language === "tsx" && prevTsx.length > 0
+                              ? prevTsx[prevTsx.length - 1]?.code ?? ""
+                              : "";
+                          const showDiff = b.language === "tsx" && prevCode && prevCode !== b.code;
+                          const diffLines = showDiff
+                            ? Diff.diffLines(prevCode, b.code)
+                            : [{ value: b.code, added: false, removed: false }];
+                          return (
+                            <div
+                              key={i}
+                              className="relative group rounded-lg overflow-hidden"
+                              style={{ background: "var(--gen-background)" }}
+                            >
+                              <div className="flex items-center justify-between px-2 py-1 text-xs opacity-70">
+                                <span>{b.language.toUpperCase()}{showDiff ? " (变更高亮)" : ""}</span>
+                                <button
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(b.code);
+                                    toast.success("Code copied");
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
+                                  style={{ color: "var(--gen-muted-fg)" }}
+                                  title="Copy code"
+                                >
+                                  <Copy size={12} />
+                                </button>
+                              </div>
+                              <pre className="p-2 text-xs overflow-x-auto max-h-32 overflow-y-auto font-mono">
+                                {showDiff
+                                  ? diffLines.map((part, pi) =>
+                                      part.added ? (
+                                        <span key={pi} className="block bg-green-500/20 text-green-700 dark:text-green-400">
+                                          {part.value.split("\n").map((line, li) => (line ? <span key={li}>+ {line}{"\n"}</span> : null))}
+                                        </span>
+                                      ) : part.removed ? (
+                                        <span key={pi} className="block bg-red-500/20 text-red-600 dark:text-red-400 line-through opacity-80">
+                                          {part.value.split("\n").map((line, li) => (line ? <span key={li}>- {line}{"\n"}</span> : null))}
+                                        </span>
+                                      ) : (
+                                        <span key={pi}>{part.value}</span>
+                                      )
+                                    )
+                                  : b.code.slice(0, 500)}
+                                {b.code.length > 500 && !showDiff ? "..." : ""}
+                              </pre>
+                              <span className="text-[10px] opacity-60 italic px-2 pb-1 block">
+                                [Rendered on canvas]
+                              </span>
                             </div>
-                            <pre className="p-2 text-xs overflow-x-auto max-h-32 overflow-y-auto">
-                              <code>{b.code.slice(0, 500)}{b.code.length > 500 ? "..." : ""}</code>
-                            </pre>
-                            <span className="text-[10px] opacity-60 italic px-2 pb-1 block">
-                              [Rendered on canvas]
-                            </span>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -771,7 +888,7 @@ export function ChatPanel() {
                   >
                     <div className="flex items-center gap-2">
                       <Loader2 size={14} className="animate-spin" />
-                      <span className="text-xs">Waiting for response...</span>
+                      <span className="text-xs">等待回复...</span>
                     </div>
                   </div>
                 )}
@@ -822,6 +939,40 @@ export function ChatPanel() {
                   >
                     <Quote size={12} />
                   </button>
+                  {parsed.codeBlocks.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const blocks = parsed.codeBlocks;
+                        const lastTsx = blocks.filter((b) => b.language === "tsx");
+                        const lastMermaid = blocks.filter((b) => b.language === "mermaid");
+                        const lastPython = blocks.filter((b) => b.language === "python");
+                        if (lastTsx.length > 0) {
+                          const allFiles = extractAllTsxBlocks(msg.content);
+                          const mainCode = allFiles["/DashboardContent.tsx"] ?? lastTsx[lastTsx.length - 1]!.code;
+                          setCurrentCode(mainCode);
+                          const { "/DashboardContent.tsx": _d, ...rest } = allFiles;
+                          setExtraFiles(rest);
+                          setRenderMode("sandpack");
+                          toast.success("已恢复到此版本");
+                        } else if (lastMermaid.length > 0) {
+                          setCurrentCode(lastMermaid[lastMermaid.length - 1]!.code);
+                          setExtraFiles({});
+                          setRenderMode("mermaid");
+                          toast.success("已恢复到此版本");
+                        } else if (lastPython.length > 0) {
+                          setCurrentCode(lastPython[lastPython.length - 1]!.code);
+                          setExtraFiles({});
+                          setRenderMode("python");
+                          toast.success("已恢复到此版本");
+                        }
+                      }}
+                      className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
+                      title="恢复到此版本"
+                    >
+                      <History size={12} />
+                    </button>
+                  )}
                   {!showProgress && (
                     <button
                       type="button"
@@ -960,6 +1111,8 @@ export function ChatPanel() {
                     setModel(v);
                     if (projectId) updateProject(projectId, { model: v }).catch(() => {});
                   }}
+                  open={modelSelectorOpen}
+                  onOpenChange={setModelSelectorOpen}
                 />
               </div>
             </div>

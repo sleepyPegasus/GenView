@@ -18,8 +18,8 @@ from app.models import Conversation, KgBuildHistory, Message, Page, Project, Pro
 
 logger = logging.getLogger("genview.lightrag")
 
-# 按 project_id 缓存的 LightRAG 实例
-_rag_instances: dict[str, LightRAG] = {}
+# 按 (project_id, llm_name) 缓存的 LightRAG 实例，支持项目级 kg_model
+_rag_instances: dict[tuple[str, str], LightRAG] = {}
 
 
 def _make_embedding_func():
@@ -55,42 +55,60 @@ def _make_embedding_func():
     )
 
 
-async def _openrouter_llm_complete(
-    prompt,
-    system_prompt=None,
-    history_messages=None,
-    **kwargs,
-):
-    """LightRAG 期望 (prompt, system_prompt, ...)，内部正确调用 openai_complete_if_cache。"""
-    if history_messages is None:
-        history_messages = []
-    return await openai_complete_if_cache(
-        settings.default_model,
+def _make_openrouter_llm_func(model_name: str):
+    """创建使用指定模型的 OpenRouter LLM 函数。"""
+
+    async def _openrouter_llm_complete(
         prompt,
-        system_prompt=system_prompt,
-        history_messages=history_messages,
-        base_url="https://openrouter.ai/api/v1",
-        api_key=settings.openrouter_api_key,
+        system_prompt=None,
+        history_messages=None,
         **kwargs,
-    )
+    ):
+        if history_messages is None:
+            history_messages = []
+        return await openai_complete_if_cache(
+            model_name,
+            prompt,
+            system_prompt=system_prompt,
+            history_messages=history_messages,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=settings.openrouter_api_key,
+            **kwargs,
+        )
 
-
-def _make_llm_func():
-    """创建 LLM 函数：本地 Ollama 或 OpenRouter。"""
-    if settings.lightrag_use_local:
-        return ollama_model_complete
     return _openrouter_llm_complete
 
 
-async def get_rag(project_id: str) -> LightRAG:
-    """按 project_id 获取或创建 LightRAG 实例，使用 workspace 隔离。"""
-    if project_id in _rag_instances:
-        return _rag_instances[project_id]
+def _make_llm_func(model_name: str | None = None):
+    """创建 LLM 函数：本地 Ollama 或 OpenRouter。"""
+    if settings.lightrag_use_local:
+        return ollama_model_complete
+    return _make_openrouter_llm_func(model_name or settings.default_model)
+
+
+async def get_rag(project_id: str, db: AsyncSession | None = None) -> LightRAG:
+    """按 project_id 获取或创建 LightRAG 实例，使用 workspace 隔离。支持项目级 kg_model。"""
+    llm_name = settings.lightrag_ollama_llm if settings.lightrag_use_local else settings.default_model
+    if db and not settings.lightrag_use_local:
+        result = await db.execute(
+            select(Project).where(
+                Project.id == project_id,
+                Project.deleted_at.is_(None),
+            )
+        )
+        proj = result.scalar_one_or_none()
+        if proj and getattr(proj, "kg_model", None):
+            llm_name = proj.kg_model
+        elif proj and getattr(proj, "model", None):
+            llm_name = proj.model
+
+    cache_key = (project_id, llm_name)
+    if cache_key in _rag_instances:
+        return _rag_instances[cache_key]
 
     working_dir = settings.lightrag_working_dir.rstrip("/")
     graph_storage = "Neo4JStorage" if settings.neo4j_uri else "NetworkXStorage"
 
-    llm_name = settings.lightrag_ollama_llm if settings.lightrag_use_local else settings.default_model
     llm_kwargs: dict = {}
     if settings.lightrag_use_local:
         llm_kwargs = {
@@ -102,7 +120,7 @@ async def get_rag(project_id: str) -> LightRAG:
         working_dir=working_dir,
         workspace=project_id,
         embedding_func=_make_embedding_func(),
-        llm_model_func=_make_llm_func(),
+        llm_model_func=_make_llm_func(llm_name),
         llm_model_name=llm_name,
         llm_model_kwargs=llm_kwargs,
         graph_storage=graph_storage,
@@ -123,7 +141,7 @@ async def get_rag(project_id: str) -> LightRAG:
         os.environ.setdefault("NEO4J_PASSWORD", settings.neo4j_password)
 
     await rag.initialize_storages()
-    _rag_instances[project_id] = rag
+    _rag_instances[cache_key] = rag
     mode = "local (Ollama)" if settings.lightrag_use_local else "cloud (OpenRouter)"
     logger.info(f"[LightRAG] Initialized for project {project_id} | mode={mode}")
     return rag
@@ -305,7 +323,7 @@ async def build_knowledge_graph(
         return {"doc_count": 0, "status": "no_documents"}
 
     try:
-        rag = await get_rag(project_id)
+        rag = await get_rag(project_id, db)
         await rag.ainsert(documents, ids=ids)
         return {"doc_count": doc_count, "status": "success"}
     except Exception as e:
@@ -319,6 +337,19 @@ def _count_doc_types(ids: list[str]) -> tuple[int, int, int]:
     page_c = sum(1 for i in ids if i.startswith("page_"))
     timeline_c = sum(1 for i in ids if i.startswith("timeline_"))
     return msg_c, page_c, timeline_c
+
+
+async def get_project_doc_count(project_id: str, db: AsyncSession) -> dict:
+    """获取项目可构建文档数量，用于构建前检查。"""
+    documents, ids = await _aggregate_project_documents(project_id, db)
+    msg_c, page_c, timeline_c = _count_doc_types(ids)
+    return {
+        "has_documents": len(documents) > 0,
+        "doc_count": len(documents),
+        "msg_count": msg_c,
+        "page_count": page_c,
+        "timeline_count": timeline_c,
+    }
 
 
 async def build_knowledge_graph_stream(project_id: str, db: AsyncSession):
@@ -382,7 +413,7 @@ async def build_knowledge_graph_stream(project_id: str, db: AsyncSession):
         yield _sse("progress", {"percent": 0, "current": 0, "total": total})
 
         try:
-            rag = await get_rag(project_id)
+            rag = await get_rag(project_id, db)
             for chunk in drain_captured():
                 yield chunk
             yield _log("LightRAG 已初始化")
@@ -441,7 +472,20 @@ async def build_knowledge_graph_stream(project_id: str, db: AsyncSession):
                 yield chunk
             logger.exception(f"[LightRAG] Build failed for project {project_id}: {e}")
             yield _log(f"构建失败: {str(e)}")
-            yield _sse("error", {"message": str(e)})
+            err_str = str(e).lower()
+            error_type = "lightrag_insert"
+            suggestion = "请检查 LightRAG 配置与数据"
+            if "neo4j" in err_str or "connection" in err_str:
+                error_type = "neo4j_connection"
+                suggestion = "请检查 Neo4j 连接与配置"
+            elif "timeout" in err_str:
+                error_type = "timeout"
+                suggestion = "请求超时，请稍后重试"
+            yield _sse("error", {
+                "message": str(e),
+                "error_type": error_type,
+                "suggestion": suggestion,
+            })
             rec = KgBuildHistory(
                 project_id=project_id,
                 doc_count=total,
@@ -460,17 +504,98 @@ async def build_knowledge_graph_stream(project_id: str, db: AsyncSession):
 
 
 async def query(
-    project_id: str, question: str, mode: str = "hybrid"
+    project_id: str, question: str, mode: str = "hybrid", db: AsyncSession | None = None
 ) -> str:
     """RAG 查询，返回回答文本。"""
-    rag = await get_rag(project_id)
+    rag = await get_rag(project_id, db)
     param = QueryParam(mode=mode)
     return await rag.aquery(question, param=param)
+
+
+async def query_stream(project_id: str, question: str, mode: str = "hybrid", db: AsyncSession | None = None):
+    """
+    流式 RAG 查询：捕获 LightRAG 日志并 emit，再生成回答。
+    Yields SSE: log, step, thinking, done, error.
+    """
+    import json
+    import time
+
+    def _sse(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    def _log(msg: str) -> str:
+        ts = time.strftime("%H:%M:%S", time.localtime())
+        return _sse("log", {"message": f"[{ts}] {msg}"})
+
+    captured: list[str] = []
+    _skip_prefixes = ("genview", "uvicorn", "sqlalchemy")
+
+    class LightRAGLogCapture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if record.levelno >= logging.INFO and not record.name.startswith(_skip_prefixes):
+                try:
+                    captured.append(self.format(record))
+                except Exception:
+                    pass
+
+    capture_handler = LightRAGLogCapture()
+    capture_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    root_logger = logging.getLogger()
+    root_logger.addHandler(capture_handler)
+
+    def drain_captured():
+        while captured:
+            yield _log(captured.pop(0))
+
+    try:
+        yield _sse("step", {"label": "正在检索图谱...", "status": "loading"})
+
+        rag = await get_rag(project_id, db)
+        for chunk in drain_captured():
+            yield chunk
+
+        param_ctx = QueryParam(mode=mode, only_need_context=True)
+        data = await rag.aquery_data(question, param=param_ctx)
+        for chunk in drain_captured():
+            yield chunk
+
+        if data and "data" in data:
+            ds = data["data"]
+            entities = ds.get("entities", [])
+            relationships = ds.get("relationships", [])
+            chunks = ds.get("chunks", [])
+            ne, nr, nc = len(entities), len(relationships), len(chunks)
+            summary_parts = []
+            if ne > 0:
+                summary_parts.append(f"{ne} 个实体")
+            if nr > 0:
+                summary_parts.append(f"{nr} 个关系")
+            if nc > 0:
+                summary_parts.append(f"{nc} 个文本片段")
+            if summary_parts:
+                yield _sse("thinking", {"text": "检索到 " + "、".join(summary_parts)})
+            else:
+                yield _sse("thinking", {"text": "未检索到相关上下文"})
+
+        yield _sse("step", {"label": "正在生成回答...", "status": "active"})
+
+        param = QueryParam(mode=mode)
+        answer = await rag.aquery(question, param=param)
+        for chunk in drain_captured():
+            yield chunk
+
+        yield _sse("done", {"answer": answer})
+    except Exception as e:
+        logger.exception("[LightRAG] query_stream failed")
+        yield _sse("error", {"message": str(e)})
+    finally:
+        root_logger.removeHandler(capture_handler)
 
 
 async def get_graph_for_visualization(
     project_id: str,
     max_nodes: int = 500,
+    db: AsyncSession | None = None,
 ) -> dict:
     """
     获取知识图谱的 nodes/edges，用于前端可视化。
@@ -478,7 +603,7 @@ async def get_graph_for_visualization(
     将 unknown_source 替换为可读来源（对话/页面/事件标题）。
     """
     try:
-        rag = await get_rag(project_id)
+        rag = await get_rag(project_id, db)
         kg = await rag.get_knowledge_graph(
             node_label="*",
             max_depth=5,
@@ -522,13 +647,13 @@ async def get_graph_for_visualization(
         return {"nodes": [], "edges": [], "is_truncated": False}
 
 
-async def get_retrieval_context(project_id: str, question: str) -> str | None:
+async def get_retrieval_context(project_id: str, question: str, db: AsyncSession | None = None) -> str | None:
     """
     从知识图谱检索与问题相关的上下文，用于注入 Chat system prompt。
     若项目未构建或检索失败，返回 None。
     """
     try:
-        rag = await get_rag(project_id)
+        rag = await get_rag(project_id, db)
         param = QueryParam(mode="hybrid", only_need_context=True)
         data = await rag.aquery_data(question, param=param)
         if not data or "data" not in data:

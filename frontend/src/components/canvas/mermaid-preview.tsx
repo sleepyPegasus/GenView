@@ -125,11 +125,31 @@ export function MermaidPreview({ code, showCode }: MermaidPreviewProps) {
   }
 
   if (error) {
+    const lineMatch = error.match(/(?:line|Line)\s*(\d+)/i);
+    const lineNum = lineMatch ? lineMatch[1] : null;
     return (
-      <div className="h-full flex items-center justify-center p-8">
-        <div className="text-center">
-          <p className="text-sm text-red-500 mb-2">Mermaid Render Error</p>
-          <pre className="text-xs text-[--gen-muted-fg] max-w-md overflow-auto">{error}</pre>
+      <div className="h-full flex flex-col items-center justify-center p-8">
+        <div className="text-center max-w-md">
+          <p className="text-sm font-medium mb-2" style={{ color: "var(--gen-destructive, #ef4444)" }}>
+            Mermaid 渲染错误
+          </p>
+          {lineNum && (
+            <p className="text-xs mb-2" style={{ color: "var(--gen-muted-fg)" }}>
+              可能的问题位置：第 {lineNum} 行
+            </p>
+          )}
+          <pre className="text-xs text-left mb-4 overflow-auto max-h-32 p-3 rounded" style={{ color: "var(--gen-muted-fg)", background: "var(--gen-muted)" }}>
+            {error}
+          </pre>
+          <a
+            href="https://mermaid.js.org/syntax/flowchart.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs underline"
+            style={{ color: "var(--gen-primary)" }}
+          >
+            查看 Mermaid 语法文档
+          </a>
         </div>
       </div>
     );

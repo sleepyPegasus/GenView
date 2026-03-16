@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,11 +30,10 @@ DEFAULT_PHASES = [
 
 
 def _sort_key(e: ProjectTimelineEvent) -> tuple:
-    """排序：先按日期，再按 sort_order"""
+    """排序：先按 sort_order（支持拖拽），再按日期"""
     d = e.event_date or e.start_date
-    if d:
-        return (d.isoformat(), e.event_time or "", e.sort_order)
-    return ("9999-12-31", "", e.sort_order)
+    date_str = d.isoformat() if d else "9999-12-31"
+    return (e.sort_order, date_str, e.event_time or "")
 
 
 @router.get("/{project_id}/timeline", response_model=list[TimelineEventOut])
@@ -117,6 +117,43 @@ async def update_timeline_event(
     await db.commit()
     await db.refresh(ev)
     return ev
+
+
+class TimelineReorderBody(BaseModel):
+    event_ids: list[str]
+
+
+@router.post("/{project_id}/timeline/reorder", response_model=list[TimelineEventOut])
+async def reorder_timeline_events(
+    project_id: str,
+    body: TimelineReorderBody,
+    db: AsyncSession = Depends(get_db),
+):
+    """拖拽重排：按 event_ids 顺序更新 sort_order"""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if not body.event_ids:
+        return []
+    for i, ev_id in enumerate(body.event_ids):
+        result = await db.execute(
+            select(ProjectTimelineEvent).where(
+                ProjectTimelineEvent.id == ev_id,
+                ProjectTimelineEvent.project_id == project_id,
+            )
+        )
+        ev = result.scalar_one_or_none()
+        if ev:
+            ev.sort_order = i
+    await db.commit()
+    result = await db.execute(
+        select(ProjectTimelineEvent)
+        .where(ProjectTimelineEvent.project_id == project_id)
+        .order_by(ProjectTimelineEvent.sort_order, ProjectTimelineEvent.created_at)
+    )
+    events = list(result.scalars().all())
+    events.sort(key=_sort_key)
+    return events
 
 
 @router.delete("/{project_id}/timeline/{event_id}")

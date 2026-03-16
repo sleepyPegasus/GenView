@@ -37,6 +37,9 @@ export interface AppState {
   // AI model selection (via OpenRouter)
   model: string;
 
+  /** Knowledge graph LLM (optional; when null uses model) */
+  kgModel: string | null;
+
   /** Conversation mode: plan = 对话/灵感, agent = 生成页面 */
   conversationMode: "plan" | "agent";
 
@@ -55,6 +58,9 @@ export interface AppState {
   // Streaming state (shared between ChatPanel → RenderCanvas)
   isStreaming: boolean;
 
+  /** Prompt to send from quick-start; ChatPanel picks up and sends, then clears */
+  pendingPromptToSend: string | null;
+
   // Actions
   setProjectId: (id: string | null) => void;
   setConversationId: (id: string | null) => void;
@@ -68,6 +74,7 @@ export interface AppState {
   setTheme: (theme: IndustryTheme) => void;
   setCustomTheme: (tokens: ThemeTokens | null) => void;
   setModel: (model: string) => void;
+  setKgModel: (model: string | null) => void;
   setConversationMode: (mode: "plan" | "agent") => void;
   setNavMenuItems: (items: NavMenuItem[]) => void;
   setNavBackgroundColor: (color: string | null) => void;
@@ -75,6 +82,7 @@ export interface AppState {
   setExtraFiles: (files: Record<string, string>) => void;
   setRenderMode: (mode: RenderMode) => void;
   setIsStreaming: (streaming: boolean) => void;
+  setPendingPromptToSend: (prompt: string | null) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -92,6 +100,7 @@ export const useAppStore = create<AppState>()(
   theme: "modern-b2b",
   customTheme: null,
   model: "google/gemini-3.1-pro-preview",
+  kgModel: null,
   conversationMode: "agent",
   navMenuItems: [
     { label: "Dashboard", icon: "LayoutDashboard", selected: true },
@@ -103,6 +112,7 @@ export const useAppStore = create<AppState>()(
   extraFiles: {},
   renderMode: null,
   isStreaming: false,
+  pendingPromptToSend: null,
 
   setProjectId: (projectId) => set({ projectId }),
   setConversationId: (conversationId) => set({ conversationId }),
@@ -118,6 +128,7 @@ export const useAppStore = create<AppState>()(
   setTheme: (theme) => set({ theme }),
   setCustomTheme: (customTheme) => set({ customTheme }),
   setModel: (model) => set({ model }),
+  setKgModel: (kgModel) => set({ kgModel }),
   setConversationMode: (conversationMode) => set({ conversationMode }),
   setNavMenuItems: (navMenuItems) => set({ navMenuItems }),
   setNavBackgroundColor: (navBackgroundColor) => set({ navBackgroundColor }),
@@ -125,6 +136,7 @@ export const useAppStore = create<AppState>()(
   setExtraFiles: (extraFiles) => set({ extraFiles }),
   setRenderMode: (mode) => set({ renderMode: mode }),
   setIsStreaming: (isStreaming) => set({ isStreaming }),
+  setPendingPromptToSend: (prompt) => set({ pendingPromptToSend: prompt }),
 }),
     {
       name: "genview-app-store",

@@ -24,6 +24,7 @@ class Project(Base):
     theme: Mapped[str] = mapped_column(String(50), default="modern-b2b")
     custom_theme: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
     model: Mapped[str] = mapped_column(String(100), default="google/gemini-3.1-pro-preview")
+    kg_model: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
     conversation_mode: Mapped[str] = mapped_column(String(20), default="agent")
     nav_background_color: Mapped[str | None] = mapped_column(String(30), nullable=True, default=None)
     app_name_font_size: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)

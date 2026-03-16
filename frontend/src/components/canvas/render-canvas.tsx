@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
 import { SandpackRenderer } from "./sandpack-preview";
 import { MermaidPreview } from "./mermaid-preview";
 import { PythonPreview } from "./python-preview";
+import { PreviewErrorBoundary } from "./preview-error-boundary";
 import { createPage } from "@/lib/api";
 import { Code2, Eye, Copy, Check, Loader2, Download, Save, Maximize2, Minimize2 } from "lucide-react";
 import { toast } from "sonner";
@@ -58,7 +60,18 @@ export function RenderCanvas() {
   const [saving, setSaving] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
-  const { projectId, conversationId, currentCode, extraFiles, renderMode, isStreaming, invalidatePagesList, conversationMode, navMenuItems } = useAppStore();
+  const params = useParams();
+  const router = useRouter();
+  const projectIdFromRoute = params.projectId as string | undefined;
+  const { projectId, conversationId, currentCode, extraFiles, renderMode, isStreaming, invalidatePagesList, conversationMode, navMenuItems, setPendingPromptToSend } = useAppStore();
+
+  const QUICK_START_PROMPTS = [
+    "创建一个销售数据看板，包含收入图表和 KPI 卡片",
+    "画一个微服务系统架构图",
+    "生成一个设备监控管理页面",
+    "创建一个用户管理后台列表页",
+    "画一个订单处理流程图",
+  ];
   const prevStreamingRef = useRef(false);
 
   const toggleFullscreen = () => {
@@ -113,7 +126,15 @@ export function RenderCanvas() {
         extra_files: renderMode === "sandpack" && Object.keys(extraFiles).length > 0 ? extraFiles : undefined,
         source_conversation_id: conversationId ?? undefined,
       });
-      toast.success("Saved to Resources");
+      toast.success("已保存到 Resources", {
+        description: "可在侧边栏 Resources 中查看",
+        action: projectIdFromRoute
+          ? {
+              label: "前往系统设计",
+              onClick: () => router.replace(`/projects/${projectIdFromRoute}?tab=design`),
+            }
+          : undefined,
+      });
       invalidatePagesList();
       setSaveDialogOpen(false);
       setSaveName("");
@@ -231,8 +252,8 @@ export function RenderCanvas() {
       {/* Canvas area */}
       <div ref={previewRef} className="flex-1 overflow-hidden min-h-0">
         {!currentCode || !renderMode ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center">
+          <div className="h-full flex flex-col items-center justify-center px-6">
+            <div className="text-center mb-6">
               <div
                 className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
                 style={{ background: "var(--gen-muted)" }}
@@ -242,9 +263,30 @@ export function RenderCanvas() {
               <h3 className="text-sm font-medium mb-1" style={{ color: "var(--gen-foreground)" }}>
                 No preview yet
               </h3>
-              <p className="text-xs max-w-[240px]" style={{ color: "var(--gen-muted-fg)" }}>
+              <p className="text-xs max-w-[240px] mb-4" style={{ color: "var(--gen-muted-fg)" }}>
                 Start a conversation to generate your dashboard UI or architecture diagram.
               </p>
+            </div>
+            <div className="flex flex-col gap-2 w-full max-w-[320px]">
+              <p className="text-xs font-medium mb-1" style={{ color: "var(--gen-muted-fg)" }}>
+                快速开始
+              </p>
+              {QUICK_START_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => setPendingPromptToSend(prompt)}
+                  disabled={isStreaming}
+                  className="text-left px-3 py-2 text-xs rounded-lg transition-colors border hover:opacity-90 disabled:opacity-50"
+                  style={{
+                    background: "var(--gen-muted)",
+                    color: "var(--gen-foreground)",
+                    borderColor: "var(--gen-border)",
+                  }}
+                >
+                  {prompt}
+                </button>
+              ))}
             </div>
           </div>
         ) : isStreaming && conversationMode === "agent" ? (
@@ -252,11 +294,47 @@ export function RenderCanvas() {
           <StreamingCodeViewer />
         ) : renderMode === "sandpack" ? (
           // After streaming: mount Sandpack with complete code
-          <SandpackRenderer showCode={showCode} />
+          <PreviewErrorBoundary>
+            <div className="relative h-full">
+              <SandpackRenderer showCode={showCode} />
+            {showSaveToPageCollection && activeTab === "preview" && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+                <button
+                  type="button"
+                  onClick={() => setSaveDialogOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg shadow-lg transition-opacity hover:opacity-90"
+                  style={{ background: "var(--gen-primary)", color: "#fff" }}
+                >
+                  <Save size={16} />
+                  保存到 Resources
+                </button>
+              </div>
+            )}
+            </div>
+          </PreviewErrorBoundary>
         ) : renderMode === "mermaid" ? (
-          <MermaidPreview code={currentCode} showCode={showCode} />
+          <PreviewErrorBoundary>
+            <div className="relative h-full">
+            <MermaidPreview code={currentCode} showCode={showCode} />
+            {showSaveToPageCollection && activeTab === "preview" && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+                <button
+                  type="button"
+                  onClick={() => setSaveDialogOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg shadow-lg transition-opacity hover:opacity-90"
+                  style={{ background: "var(--gen-primary)", color: "#fff" }}
+                >
+                  <Save size={16} />
+                  保存到 Resources
+                </button>
+              </div>
+            )}
+            </div>
+          </PreviewErrorBoundary>
         ) : renderMode === "python" ? (
-          <PythonPreview code={currentCode} showCode={showCode} />
+          <PreviewErrorBoundary>
+            <PythonPreview code={currentCode} showCode={showCode} />
+          </PreviewErrorBoundary>
         ) : null}
       </div>
 
@@ -282,7 +360,7 @@ export function RenderCanvas() {
                 color: "var(--gen-foreground)",
                 borderColor: "var(--gen-border)",
               }}
-              placeholder="Page name"
+              placeholder="页面名称"
               value={saveName}
               onChange={(e) => setSaveName(e.target.value)}
               onKeyDown={(e) => {

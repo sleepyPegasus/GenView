@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { SandpackProvider, SandpackLayout, SandpackPreview } from "@codesandbox/sandpack-react";
 import { getProject, listPages, flattenNavConfigItems, type NavConfigItem } from "@/lib/api";
 import { generateMultiPageSandpackFiles } from "@/lib/sandpack-files";
 import { ThemeInjector } from "@/components/theme-injector";
 import { ArrowLeft, Loader2, Maximize2, Minimize2 } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 export default function SystemPreviewPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
+  const initialPageId = searchParams.get("page") || undefined;
   const [project, setProject] = useState<Awaited<ReturnType<typeof getProject>> | null>(null);
   const [pages, setPages] = useState<Awaited<ReturnType<typeof listPages>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,7 +55,7 @@ export default function SystemPreviewPage() {
     return (
       <div className="flex h-screen items-center justify-center" data-theme="modern-b2b">
         <ThemeInjector />
-        <Loader2 size={24} className="animate-spin" style={{ color: "var(--gen-primary)" }} />
+        <LoadingSpinner size={24} label="加载预览..." />
       </div>
     );
   }
@@ -110,6 +113,7 @@ export default function SystemPreviewPage() {
     theme: project.theme as "modern-b2b" | "dark-dashboard" | "steel-metallurgy" | "wind-energy",
     navConfig: { top: allItems, side: allItems },
     pages: pageMap,
+    initialPageId: initialPageId || null,
   });
 
   return (
@@ -123,14 +127,6 @@ export default function SystemPreviewPage() {
         className="flex items-center gap-4 px-4 py-2 flex-shrink-0"
         style={{ borderBottom: "1px solid var(--gen-border)" }}
       >
-        <Link
-          href={`/projects/${projectId}/design`}
-          className="flex items-center gap-1 text-sm"
-          style={{ color: "var(--gen-muted-fg)" }}
-        >
-          <ArrowLeft size={16} />
-          Back to Design
-        </Link>
         <span className="text-sm font-medium flex-1" style={{ color: "var(--gen-foreground)" }}>
           Preview: {project.name}
         </span>

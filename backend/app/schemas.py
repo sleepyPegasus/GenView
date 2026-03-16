@@ -18,6 +18,7 @@ class ProjectUpdate(BaseModel):
     theme: str | None = None
     custom_theme: dict | None = None
     model: str | None = None
+    kg_model: str | None = None
     conversation_mode: str | None = None
     nav_background_color: str | None = None
     app_name_font_size: str | None = None
@@ -34,6 +35,7 @@ class ProjectOut(BaseModel):
     theme: str
     custom_theme: dict | None = None
     model: str | None = None
+    kg_model: str | None = None
     conversation_mode: str | None = None
     nav_background_color: str | None = None
     app_name_font_size: str | None = None

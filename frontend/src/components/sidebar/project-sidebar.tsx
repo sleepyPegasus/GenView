@@ -11,21 +11,26 @@ import {
   createConversation,
   getProject,
   getConversation,
+  getPage,
   listMessages,
   listPages,
+  createPage,
   deleteConversation,
   deletePage,
   updatePage,
   updateConversation,
+  searchProject,
+  exportPageHtml,
   getBaseUrl,
   flattenNavConfigItems,
   flattenNavMenuLabels,
   type Project,
   type Conversation,
   type Page,
+  type SearchResult,
 } from "@/lib/api";
 import Link from "next/link";
-import { MessageSquarePlus, GripVertical, Trash2, Loader2, Pencil, ArrowLeft, FileCode, Settings2, Eye, X, Copy, Save, Download, Maximize2, Minimize2 } from "lucide-react";
+import { MessageSquarePlus, GripVertical, Trash2, Loader2, Pencil, ArrowLeft, FileCode, FileText, Settings2, Eye, X, Copy, Save, Download, Maximize2, Minimize2, Search, ImageOff, RotateCcw, LayoutDashboard, BarChart3, Table, GitBranch } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -51,8 +56,334 @@ import { ConversationNavMenuPanel } from "./conversation-nav-menu-panel";
 import { MermaidPreview } from "@/components/canvas/mermaid-preview";
 import { SandpackProvider, SandpackLayout, SandpackPreview, SandpackCodeEditor, useSandpack } from "@codesandbox/sandpack-react";
 import { generateSandpackFiles } from "@/lib/sandpack-files";
+import { PAGE_TEMPLATES } from "@/lib/page-templates";
 
 export type ProjectSidebarTab = "conversations" | "resources" | "design" | "timeline" | "knowledge" | "settings";
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function highlightKeywords(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const escaped = escapeRegExp(query.trim());
+  const re = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(re);
+  const qLower = query.trim().toLowerCase();
+  return parts.map((part, i) =>
+    part.toLowerCase() === qLower ? (
+      <mark key={i} className="font-medium" style={{ background: "rgba(59,130,246,0.25)", color: "inherit" }}>
+        {part}
+      </mark>
+    ) : (
+      part
+    )
+  );
+}
+
+function ProjectSearchModal({
+  open,
+  onClose,
+  projectId,
+  onSelectConversation,
+  onSelectPage,
+  onSelectTimeline,
+  onTabChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  projectId: string;
+  onSelectConversation: (id: string) => void;
+  onSelectPage: (id: string) => void;
+  onSelectTimeline: (id: string) => void;
+  onTabChange: (tab: ProjectSidebarTab) => void;
+}) {
+  const SEARCH_HISTORY_KEY = "genview-search-history";
+  const SEARCH_HISTORY_MAX = 10;
+  const getSearchHistory = useCallback(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(`${SEARCH_HISTORY_KEY}-${projectId}`);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.slice(0, SEARCH_HISTORY_MAX) : [];
+    } catch {
+      return [];
+    }
+  }, [projectId]);
+  const addSearchHistory = useCallback(
+    (q: string) => {
+      if (!q.trim()) return;
+      const prev = getSearchHistory();
+      const next = [q.trim(), ...prev.filter((x) => x !== q.trim())].slice(0, SEARCH_HISTORY_MAX);
+      try {
+        localStorage.setItem(`${SEARCH_HISTORY_KEY}-${projectId}`, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+    },
+    [projectId, getSearchHistory]
+  );
+
+  const [query, setQuery] = useState("");
+  const [searchType, setSearchType] = useState<"all" | "conversations" | "pages" | "timeline">("all");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const debouncedQuery = useDebounce(query, 250);
+
+  useEffect(() => {
+    if (open) {
+      setQuery("");
+      setResults([]);
+      setSearchType("all");
+      setSelectedIndex(0);
+      setSearchHistory(getSearchHistory());
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [open, projectId, getSearchHistory]);
+
+  useEffect(() => {
+    if (!open || !projectId || !debouncedQuery.trim()) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    searchProject(projectId, debouncedQuery, searchType)
+      .then((r) => {
+        if (!cancelled) {
+          setResults(r);
+          setSelectedIndex(0);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setResults([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [open, projectId, debouncedQuery, searchType]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((i) => (i < results.length - 1 ? i + 1 : 0));
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((i) => (i > 0 ? i - 1 : results.length - 1));
+      }
+      if (e.key === "Enter" && results[selectedIndex]) {
+        e.preventDefault();
+        addSearchHistory(debouncedQuery.trim());
+        const r = results[selectedIndex];
+        if (r.type === "conversation") {
+          onTabChange("conversations");
+          onSelectConversation(r.id);
+        } else if (r.type === "page") {
+          onTabChange("resources");
+          onSelectPage(r.id);
+        } else {
+          onTabChange("timeline");
+          onSelectTimeline(r.id);
+        }
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open, results, selectedIndex, debouncedQuery, addSearchHistory, onClose, onTabChange, onSelectConversation, onSelectPage, onSelectTimeline]);
+
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-index="${selectedIndex}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
+
+  if (!open || typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10001] flex items-center justify-center p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="项目内搜索"
+    >
+      <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
+      <div
+        className="relative z-10 w-full max-w-lg rounded-lg shadow-xl overflow-hidden"
+        style={{
+          background: "var(--gen-background)",
+          border: "1px solid var(--gen-border)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: "1px solid var(--gen-border)" }}>
+          <Search size={18} style={{ color: "var(--gen-muted-fg)" }} />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索对话、页面、时间线..."
+            className="flex-1 min-w-0 bg-transparent text-sm outline-none"
+            style={{ color: "var(--gen-foreground)" }}
+          />
+          <kbd className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--gen-muted)", color: "var(--gen-muted-fg)" }}>Esc</kbd>
+        </div>
+        <div className="flex gap-0.5 px-3 py-1.5" style={{ borderBottom: "1px solid var(--gen-border)" }}>
+          {(["all", "conversations", "pages", "timeline"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setSearchType(t)}
+              className="px-2 py-1 text-xs rounded"
+              style={{
+                background: searchType === t ? "var(--gen-muted)" : "transparent",
+                color: searchType === t ? "var(--gen-foreground)" : "var(--gen-muted-fg)",
+              }}
+            >
+              {t === "all" ? "全部" : t === "conversations" ? "对话" : t === "pages" ? "页面" : "时间线"}
+            </button>
+          ))}
+        </div>
+        <div ref={listRef} className="max-h-[240px] overflow-y-auto py-1">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={20} className="animate-spin" style={{ color: "var(--gen-primary)" }} />
+            </div>
+          ) : results.length === 0 && debouncedQuery.trim() ? (
+            <div className="py-6 px-4 text-center">
+              <p className="text-xs mb-2" style={{ color: "var(--gen-muted-fg)" }}>未找到相关结果</p>
+              <p className="text-[11px]" style={{ color: "var(--gen-muted-fg)" }}>
+                尝试其他关键词，或切换到「全部」类型扩大搜索范围
+              </p>
+            </div>
+          ) : results.length === 0 && !debouncedQuery.trim() ? (
+            <div className="py-4 px-3">
+              {searchHistory.length > 0 ? (
+                <div>
+                  <p className="text-[10px] font-medium mb-2 px-1" style={{ color: "var(--gen-muted-fg)" }}>最近搜索</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {searchHistory.map((h) => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => {
+                          setQuery(h);
+                          inputRef.current?.focus();
+                        }}
+                        className="px-2 py-1 text-xs rounded"
+                        style={{
+                          background: "var(--gen-muted)",
+                          color: "var(--gen-foreground)",
+                          border: "1px solid var(--gen-border)",
+                        }}
+                      >
+                        {h}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs py-4 text-center" style={{ color: "var(--gen-muted-fg)" }}>输入关键词搜索</p>
+              )}
+            </div>
+          ) : (
+            (() => {
+              const groups = searchType === "all"
+                ? [
+                    { label: "对话", type: "conversation" as const, items: results.filter((r) => r.type === "conversation") },
+                    { label: "页面", type: "page" as const, items: results.filter((r) => r.type === "page") },
+                    { label: "时间线", type: "timeline" as const, items: results.filter((r) => r.type === "timeline") },
+                  ].filter((g) => g.items.length > 0)
+                : [{ label: searchType === "conversations" ? "对话" : searchType === "pages" ? "页面" : "时间线", type: searchType === "conversations" ? "conversation" as const : searchType === "pages" ? "page" as const : "timeline" as const, items: results }];
+              let flatIdx = 0;
+              return groups.flatMap((g) => [
+                searchType === "all" && (
+                  <div key={`h-${g.type}`} className="px-3 py-1.5 text-[10px] font-medium" style={{ color: "var(--gen-muted-fg)" }}>
+                    {g.label}
+                  </div>
+                ),
+                ...g.items.map((r) => {
+                  const i = flatIdx++;
+                  return (
+                    <button
+                      key={`${r.type}-${r.id}`}
+                      data-index={i}
+                      type="button"
+                      title={r.summary ? `${r.title}\n\n${r.summary}` : r.title}
+                      onClick={() => {
+                        addSearchHistory(debouncedQuery.trim());
+                        if (r.type === "conversation") {
+                          onTabChange("conversations");
+                          onSelectConversation(r.id);
+                        } else if (r.type === "page") {
+                          onTabChange("resources");
+                          onSelectPage(r.id);
+                        } else {
+                          onTabChange("timeline");
+                          onSelectTimeline(r.id);
+                        }
+                        onClose();
+                      }}
+                      className="w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-[var(--gen-muted)] transition-colors"
+                      style={{
+                        background: selectedIndex === i ? "var(--gen-muted)" : "transparent",
+                        color: "var(--gen-foreground)",
+                      }}
+                    >
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5"
+                        style={{
+                          color: r.type === "conversation" ? "#3b82f6" : r.type === "page" ? "#10b981" : "#8b5cf6",
+                          background: r.type === "conversation" ? "rgba(59,130,246,0.15)" : r.type === "page" ? "rgba(16,185,129,0.15)" : "rgba(139,92,246,0.15)",
+                        }}
+                      >
+                        {r.type === "conversation" ? "对话" : r.type === "page" ? "页面" : "时间线"}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{highlightKeywords(r.title, debouncedQuery)}</p>
+                        {r.summary && (
+                          <p
+                            className={`text-xs mt-0.5 ${selectedIndex === i ? "" : "truncate"}`}
+                            style={{
+                              color: "var(--gen-muted-fg)",
+                              ...(selectedIndex === i
+                                ? { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }
+                                : {}),
+                            }}
+                          >
+                            {highlightKeywords(r.summary, debouncedQuery)}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                }),
+              ]);
+            })()
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 function ThumbnailLightbox({
   imageUrl,
@@ -126,15 +457,21 @@ interface SortablePageCardProps {
   projectIdFromRoute: string | null | undefined;
   screenshotLoadingPageIds: Set<string>;
   setScreenshotLoadingPageIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  htmlExportLoadingPageIds: Set<string>;
+  setHtmlExportLoadingPageIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   onPreview: (p: Page) => void;
   onDelete: (e: React.MouseEvent, id: string) => void;
+  selected?: boolean;
+  onToggleSelect?: (pageId: string) => void;
   onCopy: (e: React.MouseEvent, code: string) => void;
   onSettingsClick: (pageId: string, rect: { top: number; left: number }) => void;
   onThumbnailClick?: (pageId: string, pageName: string) => void;
   getBaseUrl: () => string;
   thumbnailUrl?: string;
   thumbnailLoading?: boolean;
+  thumbnailFailed?: boolean;
   onFetchThumbnail?: (pageId: string) => void;
+  onRetryThumbnail?: (pageId: string) => void;
 }
 
 function SortablePageCard({
@@ -142,21 +479,33 @@ function SortablePageCard({
   projectIdFromRoute,
   screenshotLoadingPageIds,
   setScreenshotLoadingPageIds,
+  htmlExportLoadingPageIds,
+  setHtmlExportLoadingPageIds,
   onPreview,
   onDelete,
   onCopy,
+  selected,
+  onToggleSelect,
   onSettingsClick,
   onThumbnailClick,
   getBaseUrl,
   thumbnailUrl,
   thumbnailLoading,
+  thumbnailFailed,
   onFetchThumbnail,
+  onRetryThumbnail,
 }: SortablePageCardProps) {
   useEffect(() => {
-    if ((page.code_language === "tsx" || page.code_language === "mermaid") && onFetchThumbnail && !thumbnailUrl && !thumbnailLoading) {
+    if (
+      (page.code_language === "tsx" || page.code_language === "mermaid") &&
+      onFetchThumbnail &&
+      !thumbnailUrl &&
+      !thumbnailLoading &&
+      !thumbnailFailed
+    ) {
       onFetchThumbnail(page.id);
     }
-  }, [page.id, page.code_language, onFetchThumbnail, thumbnailUrl, thumbnailLoading]);
+  }, [page.id, page.code_language, onFetchThumbnail, thumbnailUrl, thumbnailLoading, thumbnailFailed]);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: page.id,
   });
@@ -169,9 +518,13 @@ function SortablePageCard({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
-    borderColor: "var(--gen-border)",
+    opacity: isDragging ? 0.4 : 1,
+    borderColor: selected ? "var(--gen-primary)" : isDragging ? "var(--gen-primary)" : "var(--gen-border)",
+    borderWidth: selected || isDragging ? 2 : 1,
+    borderStyle: isDragging ? "dashed" : "solid",
     background: "var(--gen-background)",
+    boxShadow: isDragging ? "0 8px 24px rgba(0,0,0,0.15)" : undefined,
+    zIndex: isDragging ? 1000 : undefined,
   };
   return (
     <div
@@ -209,21 +562,56 @@ function SortablePageCard({
           borderBottom: "1px solid var(--gen-border)",
         }}
       >
-        <button
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selected ?? false}
+            onChange={() => onToggleSelect?.(page.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-1 right-1 z-10 w-4 h-4 rounded cursor-pointer"
+            style={{ accentColor: "var(--gen-primary)" }}
+            title="多选"
+          />
+        )}
+        <div
           {...attributes}
           {...listeners}
           onClick={(e) => e.stopPropagation()}
-          className="absolute top-1 left-1 z-10 p-1 rounded cursor-grab active:cursor-grabbing touch-none opacity-60 hover:opacity-100 transition-opacity"
-          style={{ color: "var(--gen-muted-fg)", background: "var(--gen-background)" }}
+          className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded cursor-grab active:cursor-grabbing touch-none transition-all hover:bg-[var(--gen-primary)]/20"
+          style={{
+            color: "var(--gen-muted-fg)",
+            background: isDragging ? "rgba(59,130,246,0.2)" : "var(--gen-background)",
+            border: "1px solid var(--gen-border)",
+          }}
           title="拖拽排序"
         >
-          <GripVertical size={12} />
-        </button>
+          <GripVertical size={14} style={{ color: "var(--gen-primary)" }} />
+          <span className="text-[10px] font-medium" style={{ color: "var(--gen-foreground)" }}>拖拽</span>
+        </div>
         {(page.code_language === "tsx" || page.code_language === "mermaid") ? (
           thumbnailLoading ? (
             <Loader2 size={20} className="animate-spin" style={{ color: "var(--gen-muted-fg)" }} />
           ) : thumbnailUrl ? (
             <img src={thumbnailUrl} alt="" className="w-full h-full object-cover pointer-events-none" />
+          ) : thumbnailFailed && onRetryThumbnail ? (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
+              <ImageOff size={24} style={{ color: "var(--gen-muted-fg)" }} />
+              <span className="text-[10px] text-center" style={{ color: "var(--gen-muted-fg)" }}>
+                截图加载失败
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetryThumbnail(page.id);
+                }}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium"
+                style={{ background: "var(--gen-primary)", color: "#fff" }}
+              >
+                <RotateCcw size={10} />
+                重试
+              </button>
+            </div>
           ) : page.code_language === "mermaid" ? (
             <div className="w-full h-full flex items-center justify-center" style={{ background: "rgba(16,185,129,0.15)" }}>
               <FileCode size={24} style={{ color: "#10b981" }} />
@@ -302,6 +690,43 @@ function SortablePageCard({
                 )}
               </button>
             )}
+            {page.code_language === "mermaid" && (
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (!projectIdFromRoute) return;
+                  setHtmlExportLoadingPageIds((prev) => new Set(prev).add(page.id));
+                  try {
+                    const { blob, filename } = await exportPageHtml(projectIdFromRoute, page.id);
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = filename;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast.success("HTML 已导出");
+                  } catch {
+                    toast.error("HTML 导出失败");
+                  } finally {
+                    setHtmlExportLoadingPageIds((prev) => {
+                      const next = new Set(prev);
+                      next.delete(page.id);
+                      return next;
+                    });
+                  }
+                }}
+                disabled={htmlExportLoadingPageIds.has(page.id)}
+                className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors disabled:opacity-70"
+                style={{ color: "var(--gen-muted-fg)" }}
+                title="导出 HTML"
+              >
+                {htmlExportLoadingPageIds.has(page.id) ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <FileText size={12} />
+                )}
+              </button>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -357,6 +782,7 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
     setTheme,
     setCustomTheme,
     setModel,
+    setKgModel,
     setConversationMode,
     setNavMenuItems,
     setNavBackgroundColor,
@@ -396,10 +822,15 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
   const [pageSettingsPopoverRect, setPageSettingsPopoverRect] = useState<{ top: number; left: number } | null>(null);
   const [projectForPages, setProjectForPages] = useState<Project | null>(null);
   const [screenshotLoadingPageIds, setScreenshotLoadingPageIds] = useState<Set<string>>(new Set());
+  const [htmlExportLoadingPageIds, setHtmlExportLoadingPageIds] = useState<Set<string>>(new Set());
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
   const [thumbnailLoadingPageIds, setThumbnailLoadingPageIds] = useState<Set<string>>(new Set());
+  const [thumbnailFailedPageIds, setThumbnailFailedPageIds] = useState<Set<string>>(new Set());
   const [lightboxPageId, setLightboxPageId] = useState<string | null>(null);
   const [lightboxPageName, setLightboxPageName] = useState<string>("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
+  const [templateCreatingId, setTemplateCreatingId] = useState<string | null>(null);
 
   const thumbnailRequestedRef = useRef<Set<string>>(new Set());
   const thumbnailUrlsRef = useRef<Set<string>>(new Set());
@@ -419,7 +850,7 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
         thumbnailUrlsRef.current.add(url);
         setThumbnailUrls((prev) => ({ ...prev, [pageId]: url }));
       } catch {
-        // Silently fail for thumbnails
+        setThumbnailFailedPageIds((prev) => new Set(prev).add(pageId));
       } finally {
         setThumbnailLoadingPageIds((prev) => {
           const next = new Set(prev);
@@ -431,13 +862,37 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
     [projectIdFromRoute, projectId]
   );
 
+  const retryThumbnail = useCallback(
+    (pageId: string) => {
+      thumbnailRequestedRef.current.delete(pageId);
+      setThumbnailFailedPageIds((prev) => {
+        const next = new Set(prev);
+        next.delete(pageId);
+        return next;
+      });
+      fetchThumbnail(pageId);
+    },
+    [fetchThumbnail]
+  );
+
   // Revoke thumbnail object URLs and reset when leaving Resources tab or project changes
   const prevProjectIdRefForThumb = useRef<string | null>(null);
+  const togglePageSelect = useCallback((pageId: string) => {
+    setSelectedPageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (activeTab !== "resources") {
+      setSelectedPageIds(new Set());
       thumbnailUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
       thumbnailUrlsRef.current.clear();
       setThumbnailUrls({});
+      setThumbnailFailedPageIds(new Set());
       thumbnailRequestedRef.current.clear();
     }
   }, [activeTab]);
@@ -448,6 +903,7 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
       thumbnailUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
       thumbnailUrlsRef.current.clear();
       setThumbnailUrls({});
+      setThumbnailFailedPageIds(new Set());
       thumbnailRequestedRef.current.clear();
     } else if (projectIdFromRoute) {
       prevProjectIdRefForThumb.current = projectIdFromRoute;
@@ -469,6 +925,18 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
   useEffect(() => {
     if (!onTabChange && initialTab) setInternalTab(initialTab);
   }, [initialTab, onTabChange]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        const pid = projectIdFromRoute ?? projectId;
+        if (pid) setSearchOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [projectIdFromRoute, projectId]);
 
   // Click outside to close nav menu popover
   useEffect(() => {
@@ -643,6 +1111,7 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
     setTheme((proj.theme ?? "modern-b2b") as "modern-b2b" | "dark-dashboard" | "steel-metallurgy" | "wind-energy");
     setCustomTheme((proj.custom_theme as unknown as import("@/lib/themes").ThemeTokens) ?? null);
     setModel(proj.model ?? "google/gemini-3.1-pro-preview");
+    setKgModel(proj.kg_model ?? null);
     setConversationMode((proj.conversation_mode === "plan" ? "plan" : "agent"));
     setNavBackgroundColor(proj.nav_background_color ?? null);
     setAppNameFontSize(proj.app_name_font_size ?? null);
@@ -830,6 +1299,24 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
     setProjectForPreview(null);
   };
 
+  const handleSelectPageFromKnowledge = async (pageId: string) => {
+    const pid = projectIdFromRoute ?? projectId;
+    if (!pid) return;
+    const existing = pages.find((p) => p.id === pageId);
+    if (existing) {
+      handlePreviewPage(existing);
+      setActiveTab("resources");
+      return;
+    }
+    try {
+      const p = await getPage(pid, pageId);
+      handlePreviewPage(p);
+      setActiveTab("resources");
+    } catch {
+      toast.error("无法加载页面");
+    }
+  };
+
   const handleDeleteConversation = async (e: React.MouseEvent, cid: string) => {
     e.stopPropagation();
     if (!confirm("Delete this conversation?")) return;
@@ -884,6 +1371,19 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
           >
             <ArrowLeft size={14} />
           </Link>
+        )}
+        {(projectIdFromRoute ?? projectId) && (
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-xs"
+            style={{ color: "var(--gen-muted-fg)", background: "var(--gen-muted)" }}
+            title="搜索 (⌘K)"
+          >
+            <Search size={14} />
+            <span className="hidden sm:inline">搜索</span>
+            <kbd className="text-[10px] opacity-70">⌘K</kbd>
+          </button>
         )}
         <div className="flex gap-0.5 flex-wrap">
           {tabBtn("conversations", "Chat")}
@@ -1007,15 +1507,144 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
           ) : activeTab === "timeline" ? (
             <ProjectTimelinePanel key="timeline" projectId={projectIdFromRoute ?? projectId} />
           ) : activeTab === "knowledge" ? (
-            <ProjectKnowledgePanel key="knowledge" projectId={projectIdFromRoute ?? projectId ?? ""} />
+            <ProjectKnowledgePanel
+              key="knowledge"
+              projectId={projectIdFromRoute ?? projectId ?? ""}
+              onSelectConversation={(id) => {
+                setActiveTab("conversations");
+                handleSelectConversation(id);
+              }}
+              onSelectPage={handleSelectPageFromKnowledge}
+            />
           ) : activeTab === "design" ? (
             <ProjectDesignPanel key="design" projectId={projectIdFromRoute ?? projectId} />
           ) : (
             <Fragment key="resources">
-              <div className={pages.length === 0 ? "" : "grid grid-cols-4 gap-3"}>
+              {selectedPageIds.size > 0 && (
+                <div
+                  className="flex items-center gap-2 mb-3 px-2 py-2 rounded-lg"
+                  style={{ background: "var(--gen-muted)", border: "1px solid var(--gen-border)" }}
+                >
+                  <span className="text-xs" style={{ color: "var(--gen-muted-fg)" }}>
+                    已选 {selectedPageIds.size} 项
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const pid = projectIdFromRoute ?? projectId;
+                      if (!pid) return;
+                      const ids = [...selectedPageIds];
+                      try {
+                        for (const id of ids) await deletePage(pid, id);
+                        setPages((prev) => prev.filter((p) => !selectedPageIds.has(p.id)));
+                        setSelectedPageIds(new Set());
+                        invalidatePagesList();
+                        toast.success(`已删除 ${ids.length} 个页面`);
+                      } catch {
+                        toast.error("批量删除失败");
+                      }
+                    }}
+                    className="px-2 py-1 text-xs rounded"
+                    style={{ background: "rgba(239,68,68,0.2)", color: "#dc2626" }}
+                  >
+                    批量删除
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const pid = projectIdFromRoute ?? projectId;
+                      if (!pid) return;
+                      const mermaidPages = pages.filter((p) => p.code_language === "mermaid" && selectedPageIds.has(p.id));
+                      if (mermaidPages.length === 0) {
+                        toast.error("请选择 Mermaid 页面");
+                        return;
+                      }
+                      setHtmlExportLoadingPageIds((prev) => new Set([...prev, ...mermaidPages.map((p) => p.id)]));
+                      try {
+                        for (const p of mermaidPages) {
+                          const { blob, filename } = await exportPageHtml(pid, p.id);
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = filename;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }
+                        toast.success(`已导出 ${mermaidPages.length} 个 HTML`);
+                      } catch {
+                        toast.error("批量导出失败");
+                      } finally {
+                        setHtmlExportLoadingPageIds((prev) => {
+                          const next = new Set(prev);
+                          mermaidPages.forEach((p) => next.delete(p.id));
+                          return next;
+                        });
+                      }
+                    }}
+                    className="px-2 py-1 text-xs rounded"
+                    style={{ background: "var(--gen-primary)", color: "#fff" }}
+                  >
+                    批量导出 HTML
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPageIds(new Set())}
+                    className="px-2 py-1 text-xs rounded"
+                    style={{ color: "var(--gen-muted-fg)" }}
+                  >
+                    取消选择
+                  </button>
+                </div>
+              )}
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {PAGE_TEMPLATES.map((tpl) => {
+                    const Icon = tpl.id === "blank-dashboard" ? LayoutDashboard : tpl.id === "chart-page" ? BarChart3 : tpl.id === "table-page" ? Table : GitBranch;
+                    const creating = templateCreatingId === tpl.id;
+                    return (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        disabled={creating || !(projectIdFromRoute ?? projectId)}
+                        onClick={async () => {
+                          const pid = projectIdFromRoute ?? projectId;
+                          if (!pid) return;
+                          setTemplateCreatingId(tpl.id);
+                          try {
+                            const created = await createPage(pid, {
+                              name: tpl.name,
+                              code_block: tpl.code_block,
+                              code_language: tpl.code_language,
+                              extra_files: tpl.extra_files,
+                            });
+                            setPages((prev) => [...prev, created]);
+                            invalidatePagesList();
+                            toast.success(`已创建「${tpl.name}」`);
+                          } catch {
+                            toast.error("创建失败");
+                          } finally {
+                            setTemplateCreatingId(null);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                        style={{
+                          background: "var(--gen-muted)",
+                          color: "var(--gen-foreground)",
+                          border: "1px solid var(--gen-border)",
+                          opacity: creating ? 0.7 : 1,
+                        }}
+                        title={tpl.description}
+                      >
+                        {creating ? <Loader2 size={12} className="animate-spin" /> : <Icon size={12} />}
+                        {tpl.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className={pages.length === 0 ? "" : "grid grid-cols-4 gap-3"}>
                 {pages.length === 0 ? (
                   <p className="text-xs py-4" style={{ color: "var(--gen-muted-fg)" }}>
-                    No resources yet. Save from a conversation.
+                    暂无资源。可从上方模板创建，或在对话中保存。
                   </p>
                 ) : (
                   <DndContext
@@ -1031,8 +1660,12 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
                           projectIdFromRoute={projectIdFromRoute}
                           screenshotLoadingPageIds={screenshotLoadingPageIds}
                           setScreenshotLoadingPageIds={setScreenshotLoadingPageIds}
+                          htmlExportLoadingPageIds={htmlExportLoadingPageIds}
+                          setHtmlExportLoadingPageIds={setHtmlExportLoadingPageIds}
                           onPreview={handlePreviewPage}
                           onDelete={handleDeletePage}
+                          selected={selectedPageIds.has(p.id)}
+                          onToggleSelect={togglePageSelect}
                           onThumbnailClick={(pageId, pageName) => {
                             setLightboxPageId(pageId);
                             setLightboxPageName(pageName);
@@ -1042,7 +1675,9 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
                           }}
                           thumbnailUrl={thumbnailUrls[p.id]}
                           thumbnailLoading={thumbnailLoadingPageIds.has(p.id)}
+                          thumbnailFailed={thumbnailFailedPageIds.has(p.id)}
                           onFetchThumbnail={fetchThumbnail}
+                          onRetryThumbnail={retryThumbnail}
                           onCopy={async (e, code) => {
                             e.stopPropagation();
                             try {
@@ -1062,6 +1697,7 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
                     </SortableContext>
                   </DndContext>
                 )}
+                </div>
               </div>
             </Fragment>
           )}
@@ -1162,6 +1798,19 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
           />,
           document.body
         )}
+
+      {/* Project Search Modal */}
+      {(projectIdFromRoute ?? projectId) && (
+        <ProjectSearchModal
+          open={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          projectId={projectIdFromRoute ?? projectId!}
+          onSelectConversation={handleSelectConversation}
+          onSelectPage={() => {}}
+          onSelectTimeline={() => {}}
+          onTabChange={setActiveTab}
+        />
+      )}
     </div>
   );
 }

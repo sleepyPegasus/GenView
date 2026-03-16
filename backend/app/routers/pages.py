@@ -11,6 +11,7 @@ from app.config import settings
 from app.database import async_session, get_db
 from app.models import Page, Project
 from app.schemas import PageCreate, PageOut, PageUpdate
+from app.services.html_export_service import generate_mermaid_html
 
 router = APIRouter(prefix="/api/projects", tags=["pages"])
 logger = logging.getLogger("genview.pages")
@@ -178,6 +179,34 @@ def _make_screenshot_response(png_bytes: bytes, page_name: str) -> Response:
         content=png_bytes,
         media_type="image/png",
         headers={"Content-Disposition": cd},
+    )
+
+
+@router.get("/{project_id}/pages/{page_id}/export-html")
+async def export_page_html(
+    project_id: str,
+    page_id: str,
+    format: str = "mermaid",
+    db: AsyncSession = Depends(get_db),
+):
+    """Export page as single HTML file. Only mermaid format supported for Diagram pages."""
+    page = await db.get(Page, page_id)
+    if not page or page.project_id != project_id:
+        raise HTTPException(404, "Page not found")
+    if page.code_language != "mermaid":
+        raise HTTPException(400, "Only Diagram (Mermaid) pages can be exported as HTML")
+    if format != "mermaid":
+        raise HTTPException(400, "Only mermaid format is supported")
+    html = generate_mermaid_html(page.code_block or "", page.name or "Diagram")
+    raw_name = (page.name or "diagram").replace("/", "-").replace("\\", "-")[:50]
+    ascii_name = "".join(c if ord(c) < 128 else "-" for c in raw_name) or "diagram"
+    disposition = f'attachment; filename="{ascii_name}.html"'
+    if raw_name != ascii_name:
+        disposition += f"; filename*=UTF-8''{quote(f'{raw_name}.html', safe='')}"
+    return Response(
+        content=html.encode("utf-8"),
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": disposition},
     )
 
 

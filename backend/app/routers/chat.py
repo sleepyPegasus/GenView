@@ -180,7 +180,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         if last_user:
             query = last_user.get("content", "").strip()
             if query:
-                kg_context = await get_retrieval_context(req.project_id, query)
+                kg_context = await get_retrieval_context(req.project_id, query, db)
                 if kg_context:
                     system_prompt += f"\n\n{kg_context}"
                     logger.info(f"[Chat] LightRAG context injected | project_id={req.project_id}")
@@ -218,7 +218,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         yield _sse_event("input_tokens", {"prompt_token_count": prompt_token_count})
 
         logger.info(f"[Chat] Connecting to OpenRouter | model={model} | input_tokens={prompt_token_count}")
-        yield _sse_event("step", {"label": "Connecting to AI model...", "status": "loading"})
+        yield _sse_event("step", {"label": "连接模型中...", "status": "loading"})
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:
@@ -241,10 +241,32 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                         async for chunk in resp.aiter_text():
                             error_body += chunk
                         logger.error(f"[Chat] OpenRouter error {resp.status_code}: {error_body[:500]}")
-                        yield _sse_event("error", {"message": f"AI model returned error ({resp.status_code})"})
+                        error_code = "model_error"
+                        try:
+                            err_json = json.loads(error_body)
+                            err_obj = err_json.get("error") or err_json
+                            if isinstance(err_obj, dict):
+                                code = err_obj.get("code") or err_obj.get("type") or ""
+                                code_lower = str(code).lower()
+                                if "rate" in code_lower or "limit" in code_lower:
+                                    error_code = "rate_limit"
+                                elif "auth" in code_lower or "invalid" in code_lower and "key" in code_lower:
+                                    error_code = "invalid_api_key"
+                                elif "invalid" in code_lower or "request" in code_lower:
+                                    error_code = "invalid_request"
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                        if error_code == "model_error" and resp.status_code == 401:
+                            error_code = "invalid_api_key"
+                        elif error_code == "model_error" and resp.status_code == 429:
+                            error_code = "rate_limit"
+                        yield _sse_event("error", {
+                            "message": f"AI model returned error ({resp.status_code})",
+                            "code": error_code,
+                        })
                         return
 
-                    yield _sse_event("step", {"label": "Connected, AI is thinking...", "status": "active"})
+                    yield _sse_event("step", {"label": "解析中...", "status": "active"})
                     logger.info(f"[Chat] Connected, streaming started")
 
                     thinking_sent = False
@@ -283,7 +305,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                             )
                             if reasoning:
                                 if not thinking_sent:
-                                    yield _sse_event("step", {"label": "AI is reasoning...", "status": "active"})
+                                    yield _sse_event("step", {"label": "解析中...", "status": "active"})
                                     thinking_sent = True
                                 yield _sse_event("thinking", {"text": reasoning})
                                 continue
@@ -298,22 +320,22 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                             phase = _detect_phase(full_text, text)
                             if phase == "generating_code":
                                 in_code_block = True
-                                last_active_step_label = "Generating code..."
+                                last_active_step_label = "生成代码中..."
                                 yield _sse_event("step", {"label": last_active_step_label, "status": "active"})
                                 logger.info(f"[Chat] Code generation started | tokens_so_far={token_count}")
                             elif phase == "generating_diagram":
                                 in_code_block = True
-                                last_active_step_label = "Generating diagram..."
+                                last_active_step_label = "生成图表中..."
                                 yield _sse_event("step", {"label": last_active_step_label, "status": "active"})
                                 logger.info(f"[Chat] Diagram generation started | tokens_so_far={token_count}")
                             elif phase == "generating_python":
                                 in_code_block = True
-                                last_active_step_label = "Generating Python..."
+                                last_active_step_label = "生成 Python 中..."
                                 yield _sse_event("step", {"label": last_active_step_label, "status": "active"})
                                 logger.info(f"[Chat] Python generation started | tokens_so_far={token_count}")
                             elif phase == "code_complete":
                                 in_code_block = False
-                                yield _sse_event("step", {"label": "Code generation complete", "status": "done"})
+                                yield _sse_event("step", {"label": "代码生成完成", "status": "done"})
                                 logger.info(f"[Chat] Code generation complete | tokens={token_count}")
 
                             # Send content
@@ -330,11 +352,11 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
             except httpx.ConnectError as e:
                 logger.error(f"[Chat] Connection failed: {e}")
-                yield _sse_event("error", {"message": "Failed to connect to AI service"})
+                yield _sse_event("error", {"message": "Failed to connect to AI service", "code": "connection_error"})
                 return
             except httpx.ReadTimeout as e:
                 logger.error(f"[Chat] Read timeout: {e}")
-                yield _sse_event("error", {"message": "AI response timed out"})
+                yield _sse_event("error", {"message": "AI response timed out", "code": "timeout"})
                 return
 
         elapsed = time.time() - start_time
@@ -350,7 +372,9 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
             yield _sse_event("step", {"label": last_active_step_label, "status": "done"})
 
         yield _sse_event("progress", {"percent": 100})
-        yield _sse_event("step", {"label": "Generation complete", "status": "done"})
+        yield _sse_event("step", {"label": "渲染中...", "status": "active"})
+        yield _sse_event("step", {"label": "渲染中...", "status": "done"})
+        yield _sse_event("step", {"label": "完成", "status": "done"})
         yield _sse_event("done", {"token_count": token_count, "elapsed": round(elapsed, 1)})
 
         # Save assistant message to DB after stream completes

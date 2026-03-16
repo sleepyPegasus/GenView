@@ -312,6 +312,8 @@ export interface MultiPageSandpackOpts {
   navConfig: { top?: NavItem[]; side?: NavItem[] };
   /** pageId -> { code_block, extra_files } */
   pages: Record<string, { code: string; extraFiles?: Record<string, string> }>;
+  /** Initial page to show (from URL ?page=) */
+  initialPageId?: string | null;
 }
 
 export function generateMultiPageSandpackFiles(opts: MultiPageSandpackOpts) {
@@ -354,7 +356,11 @@ body { font-family: 'Inter', system-ui, sans-serif; background: var(--background
   const topItems = opts.navConfig.top ?? [];
   const sideItems = opts.navConfig.side ?? [];
   const allItems = opts.navLayout === "side" ? sideItems : topItems;
-  const firstPageId = allItems[0]?.pageId ?? null;
+  const defaultFirst = allItems[0]?.pageId ?? null;
+  const firstPageId =
+    opts.initialPageId && allItems.some((i) => i.pageId === opts.initialPageId)
+      ? opts.initialPageId
+      : defaultFirst;
 
   const navItemsJson = JSON.stringify(allItems.map((i) => ({ id: i.pageId, label: i.label })));
 

@@ -5,16 +5,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   buildKnowledgeGraphStream,
+  getKgDocCount,
   getKnowledgeGraph,
+  kgSimpleSearch,
   listKgBuildHistory,
   listKgQueryHistory,
   listKgQuerySessions,
-  queryKnowledgeGraph,
+  queryKnowledgeGraphStream,
   type KgBuildHistoryItem,
   type KgQuerySessionItem,
   type KnowledgeGraphData,
 } from "@/lib/api";
-import { CheckCircle2, Clock, Database, Loader2, MessageCircle, MessageSquarePlus, Network, Send, X, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, Database, Download, Loader2, MessageCircle, MessageSquarePlus, Network, Send, X, XCircle } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -22,6 +25,8 @@ const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false 
 
 interface ProjectKnowledgePanelProps {
   projectId: string;
+  onSelectConversation?: (id: string) => void;
+  onSelectPage?: (id: string) => void;
 }
 
 interface KgChatMessage {
@@ -37,9 +42,9 @@ const QUERY_MODES = [
 ] as const;
 
 const TABS = [
-  { id: "build" as const, label: "构建", icon: Database },
-  { id: "graph" as const, label: "图谱", icon: Network },
   { id: "query" as const, label: "查询", icon: MessageCircle },
+  { id: "graph" as const, label: "图谱", icon: Network },
+  { id: "build" as const, label: "构建", icon: Database },
 ];
 
 const NODE_TYPE_COLORS: Record<string, string> = {
@@ -59,7 +64,7 @@ const NODE_TYPE_COLORS: Record<string, string> = {
   default: "#6b7280",
 };
 
-export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps) {
+export function ProjectKnowledgePanel({ projectId, onSelectConversation, onSelectPage }: ProjectKnowledgePanelProps) {
   const [buildLoading, setBuildLoading] = useState(false);
   const [buildResult, setBuildResult] = useState<{ doc_count: number } | null>(null);
   const [buildProgress, setBuildProgress] = useState(0);
@@ -79,7 +84,27 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
   const graphRef = useRef<{ centerAt: (x?: number, y?: number, ms?: number) => void; zoom: (scale: number, ms?: number) => void; zoomToFit: (ms?: number, padding?: number) => void } | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [graphSize, setGraphSize] = useState({ w: 400, h: 400 });
-  const [activeTab, setActiveTab] = useState<"build" | "graph" | "query">("build");
+  const [activeTab, setActiveTab] = useState<"build" | "graph" | "query">("query");
+  const [hasDocuments, setHasDocuments] = useState<boolean | null>(null);
+  const [useSimpleSearch, setUseSimpleSearch] = useState(false);
+  const [simpleSearchResults, setSimpleSearchResults] = useState<{ query: string; chunks: { id: string; type: string; source_id: string; snippet: string }[] } | null>(null);
+  const [thinkingText, setThinkingText] = useState<string>("");
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+
+  const loadDocCount = useCallback(async () => {
+    try {
+      const data = await getKgDocCount(projectId);
+      setHasDocuments(data.has_documents);
+    } catch {
+      setHasDocuments(null);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId || activeTab !== "build") return;
+    loadDocCount();
+  }, [projectId, activeTab, loadDocCount]);
 
   const handleBuild = async () => {
     setBuildLoading(true);
@@ -87,27 +112,59 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
     setBuildProgress(0);
     setBuildLogs([]);
     try {
+      let lastError: { message?: string; suggestion?: string } | null = null;
       const result = await buildKnowledgeGraphStream(projectId, (event, data) => {
         if (event === "log" && typeof data.message === "string") {
           setBuildLogs((prev) => [...prev, data.message]);
         } else if (event === "progress" && typeof data.percent === "number") {
           setBuildProgress(data.percent);
+        } else if (event === "error") {
+          lastError = {
+            message: data.message as string | undefined,
+            suggestion: data.suggestion as string | undefined,
+          };
         }
       });
       setBuildResult(result);
-      toast.success(`构建完成，共 ${result.doc_count} 个文档`);
-      setGraphData(null);
-      setGraphLoading(true);
-      const data = await getKnowledgeGraph(projectId, 500);
-      setGraphData(data);
+      if (result.status === "no_documents" || result.doc_count === 0) {
+        toast.info("暂无文档，请先添加对话或页面", {
+          description: "在对话中生成内容或保存页面到 Resources 后再构建",
+          action: {
+            label: "前往对话",
+            onClick: () => window.location.assign(`/projects/${projectId}?tab=conversations`),
+          },
+        });
+        setHasDocuments(false);
+      } else if (result.status === "error") {
+        toast.error("构建失败", {
+          description: lastError?.suggestion ?? lastError?.message ?? "请查看构建日志",
+          action: {
+            label: "重试",
+            onClick: () => handleBuild(),
+          },
+        });
+      } else {
+        toast.success(`构建完成，共 ${result.doc_count} 个文档`);
+        setGraphData(null);
+        setGraphLoading(true);
+        const data = await getKnowledgeGraph(projectId, 500);
+        setGraphData(data);
+        setHasDocuments(true);
+      }
     } catch (err) {
+      const desc = err instanceof Error ? err.message : "Unknown error";
       toast.error("构建失败", {
-        description: err instanceof Error ? err.message : "Unknown error",
+        description: desc,
+        action: {
+          label: "重试",
+          onClick: () => handleBuild(),
+        },
       });
     } finally {
       setBuildLoading(false);
       setGraphLoading(false);
       loadBuildHistory();
+      loadDocCount();
     }
   };
 
@@ -207,6 +264,8 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
     return () => ro.disconnect();
   }, [activeTab]);
 
+  const hasGraphData = graphData != null && graphData.nodes.length > 0;
+
   const handleSend = async () => {
     const q = inputText.trim();
     if (!q || queryLoading) return;
@@ -214,17 +273,50 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
     const userMsg: KgChatMessage = { id: `u-${Date.now()}`, role: "user", content: q };
     setMessages((prev) => [...prev, userMsg]);
     setQueryLoading(true);
+    setSimpleSearchResults(null);
     try {
-      const { answer, session_id } = await queryKnowledgeGraph(projectId, q, queryMode, selectedSessionId);
-      const assistantMsg: KgChatMessage = {
-        id: `a-${Date.now()}`,
-        role: "assistant",
-        content: answer,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-      if (!selectedSessionId) setSelectedSessionId(session_id);
-      loadQuerySessions();
+      if (useSimpleSearch || !hasGraphData) {
+        const { chunks } = await kgSimpleSearch(projectId, q);
+        setSimpleSearchResults({ query: q, chunks });
+        const summary = chunks.length > 0
+          ? `找到 ${chunks.length} 条相关片段：\n\n${chunks.map((c, i) => `${i + 1}. [${c.type}] ${c.snippet}`).join("\n\n")}`
+          : "未找到相关片段";
+        const assistantMsg: KgChatMessage = {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: summary,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      } else {
+        setThinkingText("");
+        const { answer, session_id } = await queryKnowledgeGraphStream(
+          projectId,
+          q,
+          (event, data) => {
+            if (event === "log" && typeof data.message === "string") {
+              setThinkingText((prev) => (prev ? `${prev}\n` : "") + data.message);
+            } else if (event === "step" && typeof data.label === "string") {
+              setThinkingText((prev) => (prev ? `${prev}\n\n` : "") + data.label);
+            } else if (event === "thinking" && typeof data.text === "string") {
+              setThinkingText((prev) => (prev ? `${prev}\n` : "") + data.text);
+            }
+          },
+          queryMode,
+          selectedSessionId
+        );
+        setThinkingText("");
+        setThinkingExpanded(false);
+        const assistantMsg: KgChatMessage = {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: answer,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+        if (!selectedSessionId) setSelectedSessionId(session_id);
+        loadQuerySessions();
+      }
     } catch (err) {
+      setThinkingText("");
       const errMsg: KgChatMessage = {
         id: `e-${Date.now()}`,
         role: "assistant",
@@ -234,12 +326,14 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
       toast.error("查询失败");
     } finally {
       setQueryLoading(false);
+      setThinkingText("");
+      setThinkingExpanded(false);
     }
   };
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, thinkingText]);
 
   const graphForRender = useMemo(() => {
     if (!graphData) {
@@ -328,10 +422,15 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
           {activeTab === "build" && (
             <div className="flex flex-col h-full min-h-0 overflow-hidden">
               <div className="flex items-center justify-between gap-2 px-3 py-2 flex-shrink-0" style={{ borderBottom: "1px solid var(--gen-border)" }}>
+                {hasDocuments === false && (
+                  <p className="text-xs flex-1" style={{ color: "var(--gen-muted-fg)" }}>
+                    请先创建对话或保存页面
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={handleBuild}
-                  disabled={buildLoading}
+                  disabled={buildLoading || hasDocuments === false}
                   className="flex items-center gap-2 px-3 py-1.5 text-xs rounded font-medium transition-colors disabled:opacity-50"
                   style={{ background: "var(--gen-primary)", color: "#fff" }}
                 >
@@ -377,7 +476,10 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
               <div className="flex-1 overflow-y-auto px-3 py-2">
                 <div className="text-xs font-medium mb-2" style={{ color: "var(--gen-muted-fg)" }}>构建历史</div>
                 {buildHistory.length === 0 ? (
-                  <p className="text-xs" style={{ color: "var(--gen-muted-fg)" }}>暂无构建记录</p>
+                  <div className="space-y-1">
+                    <p className="text-xs" style={{ color: "var(--gen-muted-fg)" }}>暂无构建记录</p>
+                    <p className="text-[11px]" style={{ color: "var(--gen-muted-fg)" }}>点击上方「构建知识图谱」开始</p>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {buildHistory.map((h) => {
@@ -490,7 +592,7 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
                 className="absolute inset-0 flex items-center justify-center"
                 style={{ background: "var(--gen-background)" }}
               >
-                <Loader2 size={24} className="animate-spin" style={{ color: "var(--gen-primary)" }} />
+                <LoadingSpinner size={24} label="加载图谱..." />
               </div>
             ) : graphData && graphData.nodes.length > 0 ? (
               <ForceGraph2D
@@ -522,10 +624,18 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
               />
             ) : (
               <div
-                className="absolute inset-0 flex items-center justify-center text-xs px-4 text-center"
+                className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-xs px-4 text-center"
                 style={{ color: "var(--gen-muted-fg)" }}
               >
-                暂无图谱数据，请先构建知识图谱
+                <p>暂无图谱数据，请先构建知识图谱</p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("build")}
+                  className="px-3 py-1.5 rounded text-xs font-medium"
+                  style={{ background: "var(--gen-primary)", color: "#fff" }}
+                >
+                  前往构建
+                </button>
               </div>
             )}
               </div>
@@ -556,9 +666,14 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
                 </button>
                 <div className="flex-1 overflow-y-auto px-1 pb-2">
                   {sessions.length === 0 ? (
-                    <p className="text-xs px-2 py-4 text-center" style={{ color: "var(--gen-muted-fg)" }}>
-                      暂无历史对话
-                    </p>
+                    <div className="px-2 py-4 text-center space-y-2">
+                      <p className="text-xs" style={{ color: "var(--gen-muted-fg)" }}>
+                        暂无历史对话
+                      </p>
+                      <p className="text-[11px]" style={{ color: "var(--gen-muted-fg)" }}>
+                        在下方输入问题开始查询，将自动创建会话
+                      </p>
+                    </div>
                   ) : (
                     <div className="space-y-0.5">
                       {sessions.map((s) => (
@@ -583,33 +698,147 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
 
               {/* 右侧：当前对话 */}
               <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex items-center gap-2 px-2 py-1.5 flex-shrink-0" style={{ borderBottom: "1px solid var(--gen-border)" }}>
-            <span className="text-xs font-medium" style={{ color: "var(--gen-muted-fg)" }}>
+          <div className="flex items-center gap-2 px-2 py-1.5 flex-shrink-0 flex-wrap" style={{ borderBottom: "1px solid var(--gen-border)" }}>
+            <span className="text-xs font-medium flex-1" style={{ color: "var(--gen-muted-fg)" }}>
               知识图谱查询
             </span>
-            <select
-              value={queryMode}
-              onChange={(e) => setQueryMode(e.target.value as "hybrid" | "local" | "global")}
-              className="text-xs px-2 py-1 rounded border flex-shrink-0"
-              style={{
-                background: "var(--gen-background)",
-                color: "var(--gen-foreground)",
-                borderColor: "var(--gen-border)",
-              }}
-            >
-              {QUERY_MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+            {messages.length > 0 && selectedSessionId && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setExportMenuOpen((o) => !o)}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs"
+                  style={{ color: "var(--gen-muted-fg)", background: "var(--gen-muted)" }}
+                  title="导出当前会话"
+                >
+                  <Download size={12} />
+                  导出
+                </button>
+                {exportMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      aria-hidden="true"
+                      onClick={() => setExportMenuOpen(false)}
+                    />
+                    <div
+                      className="absolute right-0 top-full mt-1 py-1 rounded shadow-lg z-20 min-w-[120px]"
+                      style={{
+                        background: "var(--gen-background)",
+                        border: "1px solid var(--gen-border)",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const md = messages
+                            .map((m) =>
+                              m.role === "user"
+                                ? `## 问\n\n${m.content}`
+                                : `## 答\n\n${m.content}`
+                            )
+                            .join("\n\n---\n\n");
+                          const blob = new Blob([`# 知识图谱查询记录\n\n${md}`], { type: "text/markdown" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `kg-query-${selectedSessionId.slice(0, 8)}.md`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          toast.success("已导出为 Markdown");
+                          setExportMenuOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--gen-muted)]"
+                        style={{ color: "var(--gen-foreground)" }}
+                      >
+                        导出为 Markdown
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const txt = messages
+                            .map((m) => (m.role === "user" ? `问：\n${m.content}` : `答：\n${m.content}`))
+                            .join("\n\n");
+                          const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `kg-query-${selectedSessionId.slice(0, 8)}.txt`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          toast.success("已导出为文本");
+                          setExportMenuOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--gen-muted)]"
+                        style={{ color: "var(--gen-foreground)" }}
+                      >
+                        导出为文本
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {!hasGraphData && hasDocuments && (
+              <span className="text-xs" style={{ color: "var(--gen-muted-fg)" }}>
+                简单搜索（图谱未构建）
+              </span>
+            )}
+            {hasGraphData && (
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: "var(--gen-foreground)" }}>
+                <input
+                  type="checkbox"
+                  checked={useSimpleSearch}
+                  onChange={(e) => setUseSimpleSearch(e.target.checked)}
+                  className="rounded"
+                />
+                简单搜索
+              </label>
+            )}
+            {hasGraphData && !useSimpleSearch && (
+              <select
+                value={queryMode}
+                onChange={(e) => setQueryMode(e.target.value as "hybrid" | "local" | "global")}
+                className="text-xs px-2 py-1 rounded border flex-shrink-0"
+                style={{
+                  background: "var(--gen-background)",
+                  color: "var(--gen-foreground)",
+                  borderColor: "var(--gen-border)",
+                }}
+              >
+                {QUERY_MODES.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-3">
             {messages.length === 0 && (
-              <p className="text-xs text-center py-8" style={{ color: "var(--gen-muted-fg)" }}>
-                输入问题，基于项目知识图谱进行检索回答
-              </p>
+              <div className="text-xs text-center py-8 space-y-2 px-4" style={{ color: "var(--gen-muted-fg)" }}>
+                {!hasDocuments ? (
+                  <>
+                    <p>请先创建对话或保存页面到 Resources</p>
+                    <p className="text-[11px]">有内容后再构建知识图谱进行查询</p>
+                  </>
+                ) : !hasGraphData ? (
+                  <>
+                    <p>图谱未构建，可勾选「简单搜索」对对话和页面做关键词检索</p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("build")}
+                      className="mt-2 px-3 py-1.5 rounded text-xs font-medium"
+                      style={{ background: "var(--gen-primary)", color: "#fff" }}
+                    >
+                      前往构建图谱
+                    </button>
+                  </>
+                ) : (
+                  <p>输入问题，基于项目知识图谱进行检索回答</p>
+                )}
+              </div>
             )}
             {messages.map((m) => (
               <div
@@ -633,14 +862,72 @@ export function ProjectKnowledgePanel({ projectId }: ProjectKnowledgePanelProps)
                 </div>
               </div>
             ))}
+            {simpleSearchResults && simpleSearchResults.chunks.length > 0 && (
+              <div className="space-y-2 mt-2">
+                <div className="text-xs font-medium" style={{ color: "var(--gen-muted-fg)" }}>
+                  相关片段（点击跳转）
+                </div>
+                <div className="space-y-1.5">
+                  {simpleSearchResults.chunks.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        if (c.type === "message" && onSelectConversation) {
+                          onSelectConversation(c.source_id);
+                        } else if (c.type === "page" && onSelectPage) {
+                          onSelectPage(c.source_id);
+                        }
+                      }}
+                      className="w-full text-left px-3 py-2 rounded text-xs block truncate hover:opacity-90 transition-opacity"
+                      style={{
+                        background: "var(--gen-muted)",
+                        color: "var(--gen-foreground)",
+                        border: "1px solid var(--gen-border)",
+                      }}
+                      title={c.snippet}
+                    >
+                      <span className="font-medium" style={{ color: "var(--gen-muted-fg)" }}>
+                        [{c.type === "message" ? "对话" : "页面"}]
+                      </span>{" "}
+                      {c.snippet}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {queryLoading && (
               <div className="flex justify-start">
                 <div
-                  className="rounded-lg px-3 py-2 flex items-center gap-2 text-xs"
+                  className="rounded-lg px-3 py-2 flex flex-col gap-1.5 text-xs max-w-[90%]"
                   style={{ background: "var(--gen-muted)", color: "var(--gen-muted-fg)" }}
                 >
-                  <Loader2 size={12} className="animate-spin" />
-                  检索中...
+                  <button
+                    type="button"
+                    onClick={() => setThinkingExpanded((e) => !e)}
+                    className="flex items-center gap-2 w-full text-left"
+                  >
+                    <Loader2 size={12} className="animate-spin flex-shrink-0" />
+                    <span className="flex-1 truncate">
+                      {thinkingExpanded
+                        ? "点击收起日志"
+                        : thinkingText
+                          ? thinkingText.split("\n").slice(-1)[0] || "检索中..."
+                          : "检索中..."}
+                    </span>
+                    {thinkingExpanded ? (
+                      <ChevronDown size={12} className="flex-shrink-0" />
+                    ) : (
+                      <ChevronRight size={12} className="flex-shrink-0" />
+                    )}
+                  </button>
+                  {thinkingExpanded && thinkingText && (
+                    <div
+                      className="whitespace-pre-wrap break-words font-mono text-[11px] max-h-[200px] overflow-y-auto"
+                    >
+                      {thinkingText}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

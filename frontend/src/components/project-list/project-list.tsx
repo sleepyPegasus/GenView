@@ -17,6 +17,7 @@ import {
 import Link from "next/link";
 import { ThemeInjector } from "@/components/theme-injector";
 import { Plus, Pencil, Trash2, Loader2, FolderOpen, RotateCcw, Trash } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 type TabType = "active" | "deleted";
 
@@ -246,7 +247,7 @@ export function ProjectList() {
 
           {loading ? (
             <div className="flex justify-center py-12">
-              <Loader2 size={24} className="animate-spin" style={{ color: "var(--gen-primary)" }} />
+              <LoadingSpinner size={24} label="加载项目..." />
             </div>
           ) : displayProjects.length === 0 ? (
             <div

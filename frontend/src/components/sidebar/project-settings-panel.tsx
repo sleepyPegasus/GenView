@@ -42,6 +42,7 @@ export function ProjectSettingsPanel() {
     theme,
     customTheme,
     model,
+    kgModel,
     conversationMode,
     navBackgroundColor,
     navMenuItems,
@@ -54,6 +55,7 @@ export function ProjectSettingsPanel() {
     setTheme,
     setCustomTheme,
     setModel,
+    setKgModel,
     setConversationMode,
     setNavBackgroundColor,
   } = useAppStore();
@@ -92,6 +94,7 @@ export function ProjectSettingsPanel() {
       theme,
       custom_theme: (customTheme ?? undefined) as Record<string, unknown> | undefined,
       model,
+      kg_model: kgModel ?? undefined,
       conversation_mode: conversationMode,
       nav_background_color: navBackgroundColor ?? undefined,
       app_name_font_size: appNameFontSize ?? undefined,
@@ -110,6 +113,7 @@ export function ProjectSettingsPanel() {
     theme,
     customTheme,
     model,
+    kgModel,
     conversationMode,
     navBackgroundColor,
     navMenuItems,
@@ -552,6 +556,17 @@ export function ProjectSettingsPanel() {
                 onChange={(e) => setModel(e.target.value)}
                 placeholder="model"
                 className="text-xs h-8 flex-1 min-w-0"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium" style={{ color: "var(--gen-muted-fg)" }}>
+                知识图谱 LLM
+              </label>
+              <Input
+                value={kgModel ?? ""}
+                onChange={(e) => setKgModel(e.target.value.trim() || null)}
+                placeholder="留空则使用主对话模型"
+                className="text-xs h-8"
               />
             </div>
           </div>

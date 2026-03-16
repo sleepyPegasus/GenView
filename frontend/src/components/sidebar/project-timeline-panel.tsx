@@ -9,6 +9,7 @@ import {
   createTimelineEvent,
   updateTimelineEvent,
   deleteTimelineEvent,
+  reorderTimelineEvents,
   uploadTimelineAttachment,
   getBaseUrl,
   type TimelineEvent,
@@ -18,8 +19,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Calendar,
+  Download,
   Eye,
   GanttChart,
+  GripVertical,
   Loader2,
   Plus,
   Trash2,
@@ -31,6 +34,24 @@ import {
   Paperclip,
   X,
 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import html2canvas from "html2canvas";
 
 function getAttachmentType(name: string): "image" | "pdf" | "docx" | "office" | "other" {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -293,6 +314,104 @@ function AttachmentPreviewModal({
                 下载文件
               </a>
             </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SortableTimelineEventItem({
+  ev,
+  isSelected,
+  onSelect,
+  onStatusClick,
+  statusColor,
+  formatDate,
+  phaseOptions,
+  children,
+}: {
+  ev: TimelineEvent;
+  isSelected: boolean;
+  onSelect: () => void;
+  onStatusClick: (e: React.MouseEvent) => void;
+  statusColor: (s: string | null | undefined) => string;
+  formatDate: (d: string | null | undefined) => string;
+  phaseOptions: { value: string; label: string }[];
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ev.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    border: isDragging ? "2px dashed var(--gen-primary)" : undefined,
+    borderRadius: isDragging ? 8 : undefined,
+    boxShadow: isDragging ? "0 4px 12px rgba(0,0,0,0.1)" : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="relative -left-[7px] mb-2 cursor-pointer" onClick={onSelect}>
+      <div
+        className="flex items-start gap-2 py-1.5 px-2 rounded-lg transition-colors"
+        style={{ background: isSelected ? "var(--gen-muted)" : isDragging ? "rgba(59,130,246,0.08)" : "transparent" }}
+      >
+        <div
+          {...attributes}
+          {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          className="flex-shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded cursor-grab active:cursor-grabbing touch-none transition-colors hover:bg-[var(--gen-primary)]/15"
+          style={{
+            color: "var(--gen-muted-fg)",
+            border: "1px solid var(--gen-border)",
+            background: isDragging ? "rgba(59,130,246,0.15)" : "var(--gen-background)",
+          }}
+          title="拖拽排序"
+        >
+          <GripVertical size={12} style={{ color: "var(--gen-primary)" }} />
+          <span className="text-[9px] font-medium" style={{ color: "var(--gen-foreground)" }}>拖拽</span>
+        </div>
+        <div className="flex-shrink-0 mt-0.5">
+          {ev.type === "phase" ? (
+            <button onClick={onStatusClick} className="p-0.5 rounded" title={ev.status === "completed" ? "已完成" : ev.status === "in_progress" ? "进行中" : "待开始"}>
+              {ev.status === "completed" ? (
+                <CheckCircle2 size={12} style={{ color: statusColor(ev.status) }} />
+              ) : ev.status === "in_progress" ? (
+                <CircleDot size={12} style={{ color: statusColor(ev.status) }} />
+              ) : (
+                <Circle size={12} style={{ color: statusColor(ev.status) }} />
+              )}
+            </button>
+          ) : (
+            <div className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--gen-primary)" }} />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-medium truncate" style={{ color: "var(--gen-foreground)" }}>
+            {ev.type === "phase" ? ev.phase_label : ev.title}
+          </div>
+          <div className="text-[10px]" style={{ color: "var(--gen-muted-fg)" }}>
+            {ev.start_date || ev.event_date ? (
+              <>
+                开始: {formatDate(ev.start_date || ev.event_date)}
+                {(ev.end_date || ev.start_date || ev.event_date) && (
+                  <> / 结束: {formatDate(ev.end_date || ev.start_date || ev.event_date)}</>
+                )}
+                {ev.event_time ? ` ${ev.event_time}` : ""}
+              </>
+            ) : (
+              "-"
+            )}
+          </div>
+          {ev.type === "custom" && ev.phase_key && (
+            <span
+              className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px]"
+              style={{
+                border: "1px solid var(--gen-primary)",
+                color: "var(--gen-primary)",
+                background: "rgba(59, 130, 246, 0.1)",
+              }}
+            >
+              {phaseOptions.find((o) => o.value === ev.phase_key)?.label ?? ev.phase_key}
+            </span>
           )}
         </div>
       </div>
@@ -698,6 +817,34 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
   const [previewAttachment, setPreviewAttachment] = useState<TimelineAttachment | null>(null);
   const [previewPendingFile, setPreviewPendingFile] = useState<File | null>(null);
   const [timelineTab, setTimelineTab] = useState<"timeline" | "gantt">("timeline");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const timelineContentRef = useRef<HTMLDivElement>(null);
+
+  const sortableSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleTimelineDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id || !projectId) return;
+      const sorted = [...events].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      const oldIndex = sorted.findIndex((e) => e.id === active.id);
+      const newIndex = sorted.findIndex((e) => e.id === over.id);
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+      const newOrder = arrayMove(sorted, oldIndex, newIndex);
+      setEvents(newOrder);
+      try {
+        await reorderTimelineEvents(projectId, newOrder.map((e) => e.id));
+      } catch {
+        setEvents(events);
+        toast.error("排序失败");
+      }
+    },
+    [projectId, events]
+  );
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -894,6 +1041,75 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
   };
 
   const formatDate = (d: string | null | undefined) => (d ? d.replace(/-/g, "/") : "-");
+  const exportAsMarkdown = useCallback(() => {
+    const sorted = [...events].sort((a, b) => {
+      const da = a.start_date || a.event_date || "0000-01-01";
+      const db = b.start_date || b.event_date || "0000-01-01";
+      return db.localeCompare(da);
+    });
+    const lines: string[] = ["# 时间线摘要\n"];
+    for (const ev of sorted) {
+      const title = ev.title || ev.phase_label || "事件";
+      const dateRange = ev.start_date && ev.end_date && ev.start_date !== ev.end_date
+        ? `${formatDate(ev.start_date)} — ${formatDate(ev.end_date)}`
+        : formatDate(ev.start_date || ev.event_date);
+      lines.push(`## ${title}`);
+      lines.push(`- **时间**: ${dateRange}`);
+      if (ev.description) lines.push(`- **描述**: ${ev.description}`);
+      if (ev.outcome) lines.push(`- **成果**: ${ev.outcome}`);
+      if (ev.participants) lines.push(`- **参与人**: ${ev.participants}`);
+      lines.push("");
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `timeline-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("已导出为 Markdown");
+  }, [events, formatDate]);
+
+  const exportAsImage = useCallback(async () => {
+    const el = timelineContentRef.current;
+    if (!el) {
+      toast.error("无法获取内容区域");
+      return;
+    }
+    setExporting(true);
+    try {
+      let dataUrl: string;
+      if (timelineTab === "gantt") {
+        const ganttCanvas = el.querySelector("canvas");
+        if (ganttCanvas && ganttCanvas.width > 0 && ganttCanvas.height > 0) {
+          dataUrl = ganttCanvas.toDataURL("image/png");
+        } else {
+          throw new Error("甘特图画布未就绪");
+        }
+      } else {
+        const canvas = await html2canvas(el, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          scrollX: 0,
+          scrollY: 0,
+          allowTaint: false,
+        });
+        dataUrl = canvas.toDataURL("image/png");
+      }
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `timeline-${new Date().toISOString().slice(0, 10)}.png`;
+      a.click();
+      toast.success("已导出为图片");
+    } catch (err) {
+      console.error("[Timeline export]", err);
+      toast.error("导出图片失败");
+    } finally {
+      setExporting(false);
+    }
+  }, [timelineTab]);
+
   const attachmentUrl = (att: TimelineAttachment) =>
     att.url.startsWith("http") ? att.url : getBaseUrl() + (att.url.startsWith("/") ? att.url : "/" + att.url);
   const statusColor = (s: string | null | undefined) => {
@@ -918,11 +1134,7 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
     );
   }
 
-  const sortedEvents = [...events].sort((a, b) => {
-    const da = a.start_date || a.event_date || "0000-01-01";
-    const db = b.start_date || b.event_date || "0000-01-01";
-    return db.localeCompare(da);
-  });
+  const sortedEvents = [...events].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const selectedEv = selectedId ? events.find((e) => e.id === selectedId) : null;
   const phaseOptionsFromEvents = events
     .filter((e) => e.type === "phase" && e.phase_key && e.phase_label)
@@ -1070,9 +1282,53 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
               <GanttChart size={18} />
               甘特图
             </button>
+            <div className="mt-2 pt-2" style={{ borderTop: "1px solid var(--gen-border)" }}>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setExportMenuOpen((o) => !o)}
+                  disabled={exporting || events.length === 0}
+                  className="flex flex-col items-center gap-0.5 py-2 px-1 rounded text-[10px] w-full transition-colors disabled:opacity-50"
+                  style={{ color: "var(--gen-muted-fg)" }}
+                  title="导出"
+                >
+                  {exporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                  导出
+                </button>
+                {exportMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" aria-hidden="true" onClick={() => setExportMenuOpen(false)} />
+                    <div
+                      className="absolute left-full bottom-0 ml-1 py-1 rounded shadow-lg z-20 min-w-[120px]"
+                      style={{
+                        background: "var(--gen-background)",
+                        border: "1px solid var(--gen-border)",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { exportAsMarkdown(); setExportMenuOpen(false); }}
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--gen-muted)]"
+                        style={{ color: "var(--gen-foreground)" }}
+                      >
+                        导出 Markdown
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { exportAsImage(); setExportMenuOpen(false); }}
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--gen-muted)]"
+                        style={{ color: "var(--gen-foreground)" }}
+                      >
+                        导出图片
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
           {/* Right: content */}
-          <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
+          <div ref={timelineContentRef} className="flex-1 min-w-0 overflow-hidden flex flex-col">
             {timelineTab === "timeline" ? (
         <div className="flex flex-1 min-h-0 gap-3">
           {/* Left: vertical timeline */}
@@ -1087,91 +1343,45 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
             </button>
             <div className="flex-1 overflow-y-auto min-h-0">
               <div className="relative pl-3" style={{ borderLeft: "2px solid var(--gen-border)" }}>
-                {sortedEvents.map((ev, i) => (
-                  <Fragment key={ev.id}>
-                    {i > 0 && (() => {
-                      const prev = sortedEvents[i - 1];
-                      const d1 = prev.start_date || prev.event_date || "";
-                      const d2 = ev.start_date || ev.event_date || "";
-                      if (!d1 || !d2) return null;
-                      const days = Math.round(
-                        (new Date(d1).getTime() - new Date(d2).getTime()) / (24 * 60 * 60 * 1000)
-                      );
-                      return (
-                        <div
-                          className="pl-2 py-1 text-[10px]"
-                          style={{ color: "var(--gen-muted-fg)" }}
-                        >
-                          间隔 {days} 天
-                        </div>
-                      );
-                    })()}
-                    <div
-                      className="relative -left-[7px] mb-2 cursor-pointer"
-                      onClick={() => setSelectedId(ev.id)}
-                    >
-                      <div
-                        className="flex items-start gap-2 py-1.5 px-2 rounded-lg transition-colors"
-                        style={{ background: selectedId === ev.id ? "var(--gen-muted)" : "transparent" }}
-                      >
-                        <div className="flex-shrink-0 mt-0.5">
-                          {ev.type === "phase" ? (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (ev.status === "pending") handleUpdateStatus(ev, "in_progress");
-                                else if (ev.status === "in_progress") handleUpdateStatus(ev, "completed");
-                                else handleUpdateStatus(ev, "in_progress");
-                              }}
-                              className="p-0.5 rounded"
-                              title={ev.status === "completed" ? "已完成" : ev.status === "in_progress" ? "进行中" : "待开始"}
+                <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleTimelineDragEnd}>
+                  <SortableContext items={sortedEvents.map((e) => e.id)} strategy={verticalListSortingStrategy}>
+                    {sortedEvents.map((ev, i) => (
+                      <Fragment key={ev.id}>
+                        {i > 0 && (() => {
+                          const prev = sortedEvents[i - 1];
+                          const d1 = prev.start_date || prev.event_date || "";
+                          const d2 = ev.start_date || ev.event_date || "";
+                          if (!d1 || !d2) return null;
+                          const days = Math.round(
+                            (new Date(d1).getTime() - new Date(d2).getTime()) / (24 * 60 * 60 * 1000)
+                          );
+                          return (
+                            <div
+                              className="pl-2 py-1 text-[10px]"
+                              style={{ color: "var(--gen-muted-fg)" }}
                             >
-                              {ev.status === "completed" ? (
-                                <CheckCircle2 size={12} style={{ color: statusColor(ev.status) }} />
-                              ) : ev.status === "in_progress" ? (
-                                <CircleDot size={12} style={{ color: statusColor(ev.status) }} />
-                              ) : (
-                                <Circle size={12} style={{ color: statusColor(ev.status) }} />
-                              )}
-                            </button>
-                          ) : (
-                            <div className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--gen-primary)" }} />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-medium truncate" style={{ color: "var(--gen-foreground)" }}>
-                            {ev.type === "phase" ? ev.phase_label : ev.title}
-                          </div>
-                          <div className="text-[10px]" style={{ color: "var(--gen-muted-fg)" }}>
-                            {ev.start_date || ev.event_date ? (
-                              <>
-                                开始: {formatDate(ev.start_date || ev.event_date)}
-                                {(ev.end_date || ev.start_date || ev.event_date) && (
-                                  <> / 结束: {formatDate(ev.end_date || ev.start_date || ev.event_date)}</>
-                                )}
-                                {ev.event_time ? ` ${ev.event_time}` : ""}
-                              </>
-                            ) : (
-                              "-"
-                            )}
-                          </div>
-                          {ev.type === "custom" && ev.phase_key && (
-                            <span
-                              className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px]"
-                              style={{
-                                border: "1px solid var(--gen-primary)",
-                                color: "var(--gen-primary)",
-                                background: "color-mix(in srgb, var(--gen-primary) 10%, transparent)",
-                              }}
-                            >
-                              {phaseOptions.find((o) => o.value === ev.phase_key)?.label ?? ev.phase_key}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </Fragment>
-                ))}
+                              间隔 {days} 天
+                            </div>
+                          );
+                        })()}
+                        <SortableTimelineEventItem
+                          ev={ev}
+                          isSelected={selectedId === ev.id}
+                          onSelect={() => setSelectedId(ev.id)}
+                          onStatusClick={(e) => {
+                            e.stopPropagation();
+                            if (ev.status === "pending") handleUpdateStatus(ev, "in_progress");
+                            else if (ev.status === "in_progress") handleUpdateStatus(ev, "completed");
+                            else handleUpdateStatus(ev, "in_progress");
+                          }}
+                          statusColor={statusColor}
+                          formatDate={formatDate}
+                          phaseOptions={phaseOptions}
+                        />
+                      </Fragment>
+                    ))}
+                  </SortableContext>
+                </DndContext>
               </div>
             </div>
           </div>

@@ -13,6 +13,9 @@ interface OpenRouterModel {
 interface ModelSelectorProps {
   value: string;
   onChange: (modelId: string) => void;
+  /** When provided, use controlled open state */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const POPULAR_IDS = [
@@ -36,8 +39,17 @@ function getProvider(modelId: string): string {
   return modelId.split("/")[0] ?? "";
 }
 
-export function ModelSelector({ value, onChange }: ModelSelectorProps) {
-  const [open, setOpen] = useState(false);
+export function ModelSelector({ value, onChange, open: controlledOpen, onOpenChange }: ModelSelectorProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = useCallback(
+    (v: boolean) => {
+      if (isControlled && onOpenChange) onOpenChange(v);
+      else setInternalOpen(v);
+    },
+    [isControlled, onOpenChange]
+  );
   const [search, setSearch] = useState("");
   const [models, setModels] = useState<OpenRouterModel[]>([]);
   const [loading, setLoading] = useState(false);

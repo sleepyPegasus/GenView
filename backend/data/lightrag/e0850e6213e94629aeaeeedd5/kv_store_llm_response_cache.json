@@ -98,5 +98,151 @@
     "create_time": 1773582944,
     "update_time": 1773582944,
     "_id": "default:summary:4dcbbf5db88e17fbd4ef81a1b64b2bdd"
+  },
+  "hybrid:keywords:dab41a581da509d97ba28e6dcdb03da8": {
+    "return": "{\"high_level_keywords\": [\"\\u8c03\\u5ea6\\u7cfb\\u7edf\", \"\\u7cfb\\u7edf\\u8bbe\\u8ba1\", \"\\u67b6\\u6784\\u73b0\\u72b6\"], \"low_level_keywords\": [\"\\u8c03\\u5ea6\\u7b97\\u6cd5\", \"\\u5b9e\\u65f6\\u6027\", \"\\u9ad8\\u53ef\\u7528\\u6027\", \"\\u8d1f\\u8f7d\\u5747\\u8861\", \"\\u6545\\u969c\\u6062\\u590d\", \"\\u6570\\u636e\\u4e00\\u81f4\\u6027\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "调度系统的设计现在是什么样的",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773632442,
+    "update_time": 1773632442,
+    "_id": "hybrid:keywords:dab41a581da509d97ba28e6dcdb03da8"
+  },
+  "hybrid:query:a20b0058ccd38fe626919c7143f9866a": {
+    "return": "根据提供的背景信息，关于调度系统的具体设计细节（如架构、具体功能模块的当前状态或技术实现）在当前的对话记录中并未明确描述。\n\n不过，从业务规划和开发计划的层面，可以梳理出以下关于调度系统及相关模块的设计方向和重点：\n\n*   **优先开发方向**：在相关的对话内容中，已经明确了优先开发**全局调度主控台**的决策 [1]。\n*   **客户需求导向**：系统的设计旨在完美契合客户渴望“傻瓜式、一键出图”的操作体验，并允许客户忽略底层的复杂算法 [2]。\n*   **功能模块探讨**：\n    *   对话建议需要在与客户的沟通中，考虑是否为了项目需要增加一个单独的**碳减排管理模块** [3]。\n    *   同时，讨论了是否需要单独增加**Scada 系统** [4]。\n*   **开发计划**：目前计划在**明天**与相关客户进行接触和沟通，以阐述包括上述系统配置在内的特定内容 [5]。\n*   **解决方案更新**：**中工**部门负责根据接收到的反馈意见，对现有的**解决方案**进行更新，这可能涉及对系统设计方案或介绍词的调整 [6]。\n\n### References\n\n- [1] 【上传 - 感知 - 推演】三步引导式智能排产工作台\n- [2] 客户\n- [3] 客户\n- [4] Scada\n- [5] [对话] 明天需要和客户\n生成完整的解决方案介绍词",
+    "cache_type": "query",
+    "chunk_id": null,
+    "original_prompt": "调度系统的设计现在是什么样的",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "hl_keywords": "调度系统, 系统设计, 架构现状",
+      "ll_keywords": "调度算法, 实时性, 高可用性, 负载均衡, 故障恢复, 数据一致性",
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773632480,
+    "update_time": 1773632480,
+    "_id": "hybrid:query:a20b0058ccd38fe626919c7143f9866a"
+  },
+  "hybrid:query:212eefaf568593e694421b1f0d2e2aea": {
+    "return": "您好！我已经准备好为您提供帮助。如果您有关于业务沟通、解决方案介绍、智能排产工作台或与客户互动等方面的具体需求，请随时告诉我。\n\n### References\n\n*(No references provided as no specific factual claims were made in the response.)*",
+    "cache_type": "query",
+    "chunk_id": null,
+    "original_prompt": "你好",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "hl_keywords": "",
+      "ll_keywords": "你好",
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773632602,
+    "update_time": 1773632602,
+    "_id": "hybrid:query:212eefaf568593e694421b1f0d2e2aea"
+  },
+  "hybrid:keywords:56aa21a45d36b896a89553c862ddc555": {
+    "return": "{\"high_level_keywords\": [\"\\u8c03\\u5ea6\\u7cfb\\u7edf\", \"\\u7cfb\\u7edf\\u8bbe\\u8ba1\", \"\\u7cfb\\u7edf\\u67b6\\u6784\"], \"low_level_keywords\": [\"\\u8c03\\u5ea6\\u7b97\\u6cd5\", \"\\u8d44\\u6e90\\u7ba1\\u7406\", \"\\u8d1f\\u8f7d\\u5747\\u8861\", \"\\u5b9e\\u65f6\\u76d1\\u63a7\", \"\\u4efb\\u52a1\\u5206\\u914d\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "调度系统的设计是怎么样的",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773636518,
+    "update_time": 1773636518,
+    "_id": "hybrid:keywords:56aa21a45d36b896a89553c862ddc555"
+  },
+  "hybrid:query:ebbc5d216762b0430378a93f30b32cfa": {
+    "return": "根据提供的上下文信息，目前**无法直接回答“调度系统的设计是怎么样的”**。\n\n虽然上下文中提到了与“调度”相关的实体和规划，例如：\n*   **全局调度主控台**：在对话内容中明确提出了优先开发此主控台的决策 [1]。\n*   **智能排产工作台**：这是一个名为“【上传 - 感知 - 推演】三步引导式智能排产工作台”的系统，其设计旨在契合客户对“傻瓜式、一键出图”操作体验的需求，而忽略底层复杂性 [2]。\n*   **方案**：对话内容中讨论了特定方案的具体安排，并涉及对调度系统开发步骤的调整与规划 [3]。\n*   **中工**：负责针对南方科技各部门问题制定应对方案（即解决方案），并会更新现有的解决方案 [4]。\n\n但是，现有的文本记录**并未包含关于调度系统具体架构、技术细节、功能模块逻辑或详细设计图纸的描述**。仅提到了开发优先级和针对客户需求（如简化操作）的设计导向，而未阐述具体的系统设计方案本身。\n\n### References\n\n- [1] [对话] 明天需要和客户生成完整的解决方案介绍词\n- [2] 针对南方科技各部门问题或意见所制定的应对方案，由中工负责进行更新。<SEP>解决方案是指为客户定制的完整介绍词，旨在说明产品或服务的具体内容。\n- [3] 该智能排产工作台是为了完美契合客户渴望“傻瓜式、一键出图”并且忽略底层复杂度的业务诉求而设计的。\n- [4] 在该对话内容中，明确了优先开发全局调度主控台的决策。\n- [5] 对话的文本记录中提及了明天需要接触或互动的客户。<SEP>截取的对话内容中明确提及了明天需要与客户开展相关的业务沟通事宜。",
+    "cache_type": "query",
+    "chunk_id": null,
+    "original_prompt": "调度系统的设计是怎么样的",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "hl_keywords": "调度系统, 系统设计, 系统架构",
+      "ll_keywords": "调度算法, 资源管理, 负载均衡, 实时监控, 任务分配",
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773636557,
+    "update_time": 1773636557,
+    "_id": "hybrid:query:ebbc5d216762b0430378a93f30b32cfa"
+  },
+  "hybrid:keywords:1021cde805bcb5c63e2477bf4023b77e": {
+    "return": "{\"high_level_keywords\": [\"\\u4e91\\u8ba1\\u7b97\\u670d\\u52a1\", \"\\u6280\\u672f\\u8bc4\\u4f30\", \"\\u4f01\\u4e1a\\u8d44\\u6e90\\u89c4\\u5212\"], \"low_level_keywords\": [\"Google\", \"Oracle\", \"ERP\", \"\\u6570\\u636e\\u5e93\", \"AI\", \"\\u6df7\\u5408\\u4e91\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "计划使用google的o r",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773646551,
+    "update_time": 1773646551,
+    "_id": "hybrid:keywords:1021cde805bcb5c63e2477bf4023b77e"
+  },
+  "hybrid:keywords:278d3901974d0b09b2348b3c2a0cd231": {
+    "return": "{\"high_level_keywords\": [\"\\u8c03\\u5ea6\\u7cfb\\u7edf\", \"\\u6838\\u5fc3\\u7b97\\u6cd5\\u5f00\\u53d1\", \"\\u7cfb\\u7edf\\u89c4\\u5212\\u8bbe\\u8ba1\", \"\\u7b97\\u6cd5\\u67b6\\u6784\\u8bbe\\u8ba1\"], \"low_level_keywords\": [\"Google OR-Tools\", \"\\u8c03\\u5ea6\\u4f18\\u5316\", \"\\u8def\\u5f84\\u89c4\\u5212\", \"\\u8d44\\u6e90\\u5206\\u914d\", \"\\u7ea6\\u675f\\u6ee1\\u8db3\\u95ee\\u9898\", \"\\u6df7\\u5408\\u6574\\u6570\\u89c4\\u5212\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "计划使用google or-tools进行调度系统核心算法开发，请进行规划设计",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773646685,
+    "update_time": 1773646685,
+    "_id": "hybrid:keywords:278d3901974d0b09b2348b3c2a0cd231"
   }
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Loader2 } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 const PYODIDE_CDN = "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/";
 
@@ -111,12 +112,7 @@ sys.stderr = _pyodide_stderr
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="flex flex-col items-center gap-2">
-          <Loader2 size={24} className="animate-spin" style={{ color: "var(--gen-primary)" }} />
-          <span className="text-sm" style={{ color: "var(--gen-muted-fg)" }}>
-            正在加载 Python 运行环境...
-          </span>
-        </div>
+        <LoadingSpinner size={24} label="正在加载 Python 运行环境..." />
       </div>
     );
   }

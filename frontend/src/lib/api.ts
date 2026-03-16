@@ -17,6 +17,7 @@ export interface Project {
   theme: string;
   custom_theme?: Record<string, unknown> | null;
   model?: string;
+  kg_model?: string | null;
   conversation_mode?: string;
   nav_background_color?: string | null;
   app_name_font_size?: string | null;
@@ -133,6 +134,42 @@ export async function getProject(projectId: string): Promise<Project> {
   return res.json();
 }
 
+export interface SearchResult {
+  id: string;
+  type: "conversation" | "page" | "timeline";
+  title: string;
+  summary: string | null;
+}
+
+export async function searchProject(
+  projectId: string,
+  q: string,
+  type: "all" | "conversations" | "pages" | "timeline" = "all"
+): Promise<SearchResult[]> {
+  const params = new URLSearchParams({ q: q.trim(), type });
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/search?${params}`
+  );
+  if (!res.ok) throw new Error(`Search failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function exportProject(
+  projectId: string,
+  format: "vite" = "vite"
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/export?format=${format}`,
+    { method: "POST" }
+  );
+  if (!res.ok) throw new Error(`Failed to export: ${res.statusText}`);
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition");
+  const match = disposition?.match(/filename="?([^";\n]+)"?/);
+  const filename = match ? match[1].trim() : "genview-export.zip";
+  return { blob, filename };
+}
+
 export async function createProject(data: {
   name?: string;
   logo_url?: string;
@@ -162,6 +199,7 @@ export async function updateProject(
     theme?: string;
     custom_theme?: Record<string, unknown> | null;
     model?: string;
+    kg_model?: string | null;
     conversation_mode?: string;
     nav_background_color?: string | null;
     app_name_font_size?: string | null;
@@ -222,6 +260,22 @@ export async function getPage(projectId: string, pageId: string): Promise<Page> 
   );
   if (!res.ok) throw new Error(`Failed to get page: ${res.statusText}`);
   return res.json();
+}
+
+export async function exportPageHtml(
+  projectId: string,
+  pageId: string,
+  format: "mermaid" = "mermaid"
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/pages/${encodeURIComponent(pageId)}/export-html?format=${format}`
+  );
+  if (!res.ok) throw new Error(`Failed to export: ${res.statusText}`);
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition");
+  const match = disposition?.match(/filename="?([^";\n]+)"?/);
+  const filename = match ? match[1].trim() : "diagram.html";
+  return { blob, filename };
 }
 
 export async function createPage(
@@ -324,6 +378,22 @@ export async function createTimelineEvent(
   return res.json();
 }
 
+export async function reorderTimelineEvents(
+  projectId: string,
+  eventIds: string[]
+): Promise<TimelineEvent[]> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/timeline/reorder`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event_ids: eventIds }),
+    }
+  );
+  if (!res.ok) throw new Error(`Failed to reorder timeline: ${res.statusText}`);
+  return res.json();
+}
+
 export async function updateTimelineEvent(
   projectId: string,
   eventId: string,
@@ -343,10 +413,45 @@ export async function updateTimelineEvent(
 
 export type KgBuildEvent = "log" | "progress" | "done" | "error";
 
+export interface KgDocCount {
+  has_documents: boolean;
+  doc_count: number;
+  msg_count: number;
+  page_count: number;
+  timeline_count: number;
+}
+
+export async function getKgDocCount(projectId: string): Promise<KgDocCount> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/doc-count`
+  );
+  if (!res.ok) throw new Error("Failed to fetch doc count");
+  return res.json();
+}
+
+export interface KgSimpleSearchChunk {
+  id: string;
+  type: "message" | "page";
+  source_id: string;
+  snippet: string;
+}
+
+export async function kgSimpleSearch(
+  projectId: string,
+  q: string
+): Promise<{ chunks: KgSimpleSearchChunk[] }> {
+  const params = new URLSearchParams({ q: q.trim() });
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/simple-search?${params}`
+  );
+  if (!res.ok) throw new Error(`Simple search failed: ${res.statusText}`);
+  return res.json();
+}
+
 export async function buildKnowledgeGraphStream(
   projectId: string,
   onEvent: (event: KgBuildEvent, data: Record<string, unknown>) => void
-): Promise<{ doc_count: number }> {
+): Promise<{ doc_count: number; status?: string }> {
   const url = `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/build`;
   const res = await fetch(url, { method: "POST" });
   if (!res.ok) throw new Error(`Failed to build knowledge graph: ${res.statusText}`);
@@ -355,7 +460,7 @@ export async function buildKnowledgeGraphStream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let result: { doc_count: number } = { doc_count: 0 };
+  let result: { doc_count: number; status?: string } = { doc_count: 0 };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -372,10 +477,72 @@ export async function buildKnowledgeGraphStream(
           const data = JSON.parse(dataMatch[1].trim()) as Record<string, unknown>;
           onEvent(event, data);
           if (event === "done") {
-            result = { doc_count: (data.doc_count as number) ?? 0 };
+            result = {
+              doc_count: (data.doc_count as number) ?? 0,
+              status: data.status as string | undefined,
+            };
           }
         } catch {
           // ignore parse errors
+        }
+      }
+    }
+  }
+  return result;
+}
+
+export type KgQueryStreamEvent = "log" | "step" | "thinking" | "done" | "session" | "error";
+
+export async function queryKnowledgeGraphStream(
+  projectId: string,
+  question: string,
+  onEvent: (event: KgQueryStreamEvent, data: Record<string, unknown>) => void,
+  mode?: string,
+  sessionId?: string | null
+): Promise<{ answer: string; session_id: string }> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/kg/query-stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, mode: mode ?? "hybrid", session_id: sessionId ?? undefined }),
+    }
+  );
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    const detail = (errBody as { detail?: string })?.detail ?? res.statusText;
+    throw new Error(`查询失败：${detail}`);
+  }
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: { answer: string; session_id: string } = { answer: "", session_id: sessionId ?? "" };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const eventMatch = part.match(/^event: (\w+)\n/m);
+      const dataMatch = part.match(/data: (.+)$/ms);
+      if (eventMatch && dataMatch) {
+        const event = eventMatch[1] as KgQueryStreamEvent;
+        try {
+          const data = JSON.parse(dataMatch[1].trim()) as Record<string, unknown>;
+          onEvent(event, data);
+          if (event === "done") {
+            result.answer = (data.answer as string) ?? "";
+          } else if (event === "session") {
+            result.session_id = (data.session_id as string) ?? result.session_id;
+          } else if (event === "error") {
+            throw new Error((data.message as string) ?? "Query failed");
+          }
+        } catch (e) {
+          if (e instanceof Error && event === "error") throw e;
         }
       }
     }
@@ -397,7 +564,11 @@ export async function queryKnowledgeGraph(
       body: JSON.stringify({ question, mode: mode ?? "hybrid", session_id: sessionId ?? undefined }),
     }
   );
-  if (!res.ok) throw new Error(`Failed to query knowledge graph: ${res.statusText}`);
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    const detail = (errBody as { detail?: string })?.detail ?? res.statusText;
+    throw new Error(`查询失败：${detail}`);
+  }
   const data = await res.json();
   return { answer: data.answer ?? "", session_id: data.session_id ?? "" };
 }
