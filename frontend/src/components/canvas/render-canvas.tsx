@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
 import { SandpackRenderer } from "./sandpack-preview";
 import { MermaidPreview } from "./mermaid-preview";
 import { PythonPreview } from "./python-preview";
-import { MonacoCodeEditor } from "./monaco-code-editor";
 import { PreviewErrorBoundary } from "./preview-error-boundary";
+import { CodeEditAdvancedModal } from "./code-edit-advanced-modal";
 import { createPage } from "@/lib/api";
 import { Code2, Eye, Copy, Check, Loader2, Download, Save, Maximize2, Minimize2, Terminal } from "lucide-react";
 import { toast } from "sonner";
@@ -53,20 +53,19 @@ function StreamingCodeViewer() {
   );
 }
 
-export function RenderCanvas() {
+function RenderCanvasInner() {
   const [activeTab, setActiveTab] = useState<"preview" | "code">("code");
   const [copied, setCopied] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saving, setSaving] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [advancedModalOpen, setAdvancedModalOpen] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const params = useParams();
   const router = useRouter();
   const projectIdFromRoute = params.projectId as string | undefined;
-  const { projectId, conversationId, currentCode, extraFiles, renderMode, isStreaming, invalidatePagesList, conversationMode, navMenuItems, setPendingPromptToSend, setCurrentCode } = useAppStore();
-  const [editorMode, setEditorMode] = useState<"simple" | "advanced">("simple");
-
+  const { projectId, conversationId, currentCode, extraFiles, renderMode, isStreaming, invalidatePagesList, conversationMode, navMenuItems, setPendingPromptToSend, setCurrentCode, appName, logoUrl, navLayout, theme, model, activePageId } = useAppStore();
   const QUICK_START_PROMPTS = [
     "创建一个销售数据看板，包含收入图表和 KPI 卡片",
     "画一个微服务系统架构图",
@@ -167,8 +166,38 @@ export function RenderCanvas() {
 
   const showCode = activeTab === "code";
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        if (showCode && canUseAdvancedEditor) {
+          setAdvancedModalOpen(true);
+        }
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [showCode, canUseAdvancedEditor]);
+
+  const codeLanguage = renderMode === "mermaid" ? "mermaid" : renderMode === "python" ? "python" : "tsx";
+
   return (
-    <div className="h-full flex flex-col" style={{ background: "var(--gen-background)" }}>
+    <div className="h-full flex flex-col relative" style={{ background: "var(--gen-background)" }}>
+      {/* 高级模式全屏模态 */}
+      <CodeEditAdvancedModal
+        open={advancedModalOpen}
+        onClose={() => setAdvancedModalOpen(false)}
+        currentCode={currentCode}
+        setCurrentCode={setCurrentCode}
+        language={codeLanguage}
+        appName={appName}
+        logoUrl={logoUrl}
+        navLayout={navLayout}
+        theme={theme}
+        model={model}
+        projectId={projectId}
+        pageId={activePageId}
+      />
       {/* Tab bar */}
       <div
         className="flex items-center justify-between px-4 h-11 flex-shrink-0"
@@ -209,22 +238,22 @@ export function RenderCanvas() {
             >
               <button
                 type="button"
-                onClick={() => setEditorMode("simple")}
+                onClick={() => setAdvancedModalOpen(false)}
                 className="px-1.5 py-0.5 text-[10px] rounded transition-colors"
                 style={{
-                  background: editorMode === "simple" ? "var(--gen-primary)" : "transparent",
-                  color: editorMode === "simple" ? "#fff" : "var(--gen-muted-fg)",
+                  background: !advancedModalOpen ? "var(--gen-primary)" : "transparent",
+                  color: !advancedModalOpen ? "#fff" : "var(--gen-muted-fg)",
                 }}
               >
                 简单
               </button>
               <button
                 type="button"
-                onClick={() => setEditorMode("advanced")}
+                onClick={() => setAdvancedModalOpen(true)}
                 className="px-1.5 py-0.5 text-[10px] rounded transition-colors flex items-center gap-0.5"
                 style={{
-                  background: editorMode === "advanced" ? "var(--gen-primary)" : "transparent",
-                  color: editorMode === "advanced" ? "#fff" : "var(--gen-muted-fg)",
+                  background: advancedModalOpen ? "var(--gen-primary)" : "transparent",
+                  color: advancedModalOpen ? "#fff" : "var(--gen-muted-fg)",
                 }}
               >
                 <Terminal size={10} />
@@ -333,7 +362,7 @@ export function RenderCanvas() {
             <div className="relative h-full">
               <SandpackRenderer
                 showCode={showCode}
-                useAdvancedEditor={editorMode === "advanced"}
+                useAdvancedEditor={false}
                 setCurrentCode={setCurrentCode}
               />
             {showSaveToPageCollection && activeTab === "preview" && (
@@ -354,18 +383,7 @@ export function RenderCanvas() {
         ) : renderMode === "mermaid" ? (
           <PreviewErrorBoundary>
             <div className="relative h-full">
-            {showCode && editorMode === "advanced" ? (
-              <div className="h-full">
-                <MonacoCodeEditor
-                  value={currentCode}
-                  onChange={setCurrentCode}
-                  language="mermaid"
-                  readOnly={false}
-                />
-              </div>
-            ) : (
-              <MermaidPreview code={currentCode} showCode={showCode} />
-            )}
+            <MermaidPreview code={currentCode} showCode={showCode} />
             {showSaveToPageCollection && activeTab === "preview" && (
               <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
                 <button
@@ -383,18 +401,7 @@ export function RenderCanvas() {
           </PreviewErrorBoundary>
         ) : renderMode === "python" ? (
           <PreviewErrorBoundary>
-            {showCode && editorMode === "advanced" ? (
-              <div className="h-full">
-                <MonacoCodeEditor
-                  value={currentCode}
-                  onChange={setCurrentCode}
-                  language="python"
-                  readOnly={false}
-                />
-              </div>
-            ) : (
-              <PythonPreview code={currentCode} showCode={showCode} />
-            )}
+            <PythonPreview code={currentCode} showCode={showCode} />
           </PreviewErrorBoundary>
         ) : null}
       </div>
@@ -457,4 +464,8 @@ export function RenderCanvas() {
       )}
     </div>
   );
+}
+
+export function RenderCanvas() {
+  return <RenderCanvasInner />;
 }

@@ -244,5 +244,45 @@
     "create_time": 1773646685,
     "update_time": 1773646685,
     "_id": "hybrid:keywords:278d3901974d0b09b2348b3c2a0cd231"
+  },
+  "hybrid:keywords:4da917a21ae37929cb1f97380ea4566b": {
+    "return": "{\"high_level_keywords\": [\"\\u65f6\\u95f4\\u8bbe\\u7f6e\", \"\\u53c2\\u6570\\u8c03\\u6574\", \"\\u89c6\\u9891\\u526a\\u8f91\"], \"low_level_keywords\": [\"4 \\u79d2\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "修改为4秒",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773667015,
+    "update_time": 1773667015,
+    "_id": "hybrid:keywords:4da917a21ae37929cb1f97380ea4566b"
+  },
+  "hybrid:keywords:0bd9daa321da1ab20710553b38328495": {
+    "return": "{\"high_level_keywords\": [\"\\u8c03\\u5ea6\\u7b97\\u6cd5\", \"\\u8c03\\u5ea6\\u6a21\\u578b\", \"\\u7b97\\u6cd5\\u89c4\\u5212\"], \"low_level_keywords\": [\"google\", \"or-tools\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "计划使用google的or-tools来实现调度算法，请给出详细调度模型算法规划",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773671900,
+    "update_time": 1773671900,
+    "_id": "hybrid:keywords:0bd9daa321da1ab20710553b38328495"
   }
 }

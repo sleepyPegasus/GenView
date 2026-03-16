@@ -109,6 +109,16 @@ class MessageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AiModifyMessageOut(BaseModel):
+    id: str
+    role: str
+    content: str
+    referenced_code: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Chat ─────────────────────────────────────────────────
 class ChatMessagePart(BaseModel):
     type: str
@@ -234,3 +244,9 @@ class ChatRequest(BaseModel):
     project_id: str | None = None
     # 本次请求覆盖配置，None 则用 settings.chat_max_rounds
     max_rounds: int | None = None
+    # AI 修改选中代码模式：当设置时，仅修改选中部分，输出完整替换代码
+    modify_selection: str | None = None
+    # AI 修改全文件模式：当 True 时，基于 current_code 分析并修改整个文件
+    modify_full_file: bool = False
+    # AI 修改持久化：scope_key（page_id 或 hash_xxx），与 project_id 一起用于写入 ai_modify_messages
+    scope_key: str | None = None

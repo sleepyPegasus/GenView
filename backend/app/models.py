@@ -235,3 +235,23 @@ class KgQueryMessage(Base):
         Index("ix_kg_query_messages_project_id", "project_id"),
         Index("ix_kg_query_messages_session_id", "session_id"),
     )
+
+
+class AiModifyMessage(Base):
+    """AI 修改对话消息（与普通 conversation 分离，按 scope_key 索引）"""
+
+    __tablename__ = "ai_modify_messages"
+
+    id: Mapped[str] = mapped_column(String(30), primary_key=True, default=_gen_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    scope_key: Mapped[str] = mapped_column(String(100))  # page_id 或 hash_xxx
+    role: Mapped[str] = mapped_column(String(20))  # user | assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    referenced_code: Mapped[str | None] = mapped_column(Text, nullable=True)  # 用户消息引用的选中代码
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_ai_modify_messages_project_scope", "project_id", "scope_key"),
+    )

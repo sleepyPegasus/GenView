@@ -134,6 +134,26 @@ export async function getProject(projectId: string): Promise<Project> {
   return res.json();
 }
 
+export interface AiModifyMessage {
+  id: string;
+  role: string;
+  content: string;
+  referenced_code: string | null;
+  created_at: string;
+}
+
+export async function getAiModifyHistory(
+  projectId: string,
+  scopeKey: string
+): Promise<AiModifyMessage[]> {
+  const params = new URLSearchParams({ scope_key: scopeKey });
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/ai-modify-history?${params}`
+  );
+  if (!res.ok) throw new Error(`Failed to get AI modify history: ${res.statusText}`);
+  return res.json();
+}
+
 export interface SearchResult {
   id: string;
   type: "conversation" | "page" | "timeline";

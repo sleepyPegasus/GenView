@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_
 
 from app.database import get_db
-from app.models import Conversation, Message, Page, Project, ProjectTimelineEvent
-from app.schemas import ProjectCreate, ProjectOut, ProjectUpdate
+from app.models import AiModifyMessage, Conversation, Message, Page, Project, ProjectTimelineEvent
+from app.schemas import AiModifyMessageOut, ProjectCreate, ProjectOut, ProjectUpdate
 from app.services.export_service import generate_vite_project
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -37,6 +37,24 @@ async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)
     await db.commit()
     await db.refresh(project)
     return project
+
+
+@router.get("/{project_id}/ai-modify-history", response_model=list[AiModifyMessageOut])
+async def get_ai_modify_history(
+    project_id: str,
+    scope_key: str = Query(..., description="page_id 或 hash_xxx"),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取 AI 修改对话历史（按 scope_key 索引，与普通 conversation 分离）"""
+    project = await db.get(Project, project_id)
+    if not project or project.deleted_at is not None:
+        raise HTTPException(404, "Project not found")
+    result = await db.execute(
+        select(AiModifyMessage)
+        .where(AiModifyMessage.project_id == project_id, AiModifyMessage.scope_key == scope_key)
+        .order_by(AiModifyMessage.created_at.asc())
+    )
+    return result.scalars().all()
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.models import Message
+from app.models import AiModifyMessage, Message
 from app.schemas import ChatRequest
 from app.services.lightrag_service import get_retrieval_context
 from app.services.memos_client import add_message as memos_add_message
@@ -59,7 +59,37 @@ PLAN_SYSTEM_PROMPT = """你是一个资深的工业软件产品顾问，名为 G
 【回复风格】用词克制、务实，贴近工程师日常沟通。禁止夸张、营销式表述；避免过度热情。直接分析需求、给出建议即可。"""
 
 
+MODIFY_SELECTION_PROMPT = """你是一个代码编辑助手。用户选中了一段代码，希望按指令修改。
+
+【任务】根据用户指令，只修改选中的代码部分，输出完整的修改后代码（即替换选中区域的完整内容）。
+【输出格式】必须且仅输出一个代码块，用 ```tsx 或 ```mermaid 或 ```python 包裹，不要包含任何解释文字。
+【要求】保持代码风格一致，不要改动选中区域之外的代码。
+
+【示例】若用户选中了 return <div>old</div> 并请求改为 "new"，应直接输出：
+```tsx
+return <div>new</div>
+```
+禁止在代码块前后添加任何解释、说明或 Markdown。"""
+
+MODIFY_FULL_FILE_PROMPT = """你是一个代码编辑助手。用户希望对当前文件进行修改，无需选中代码。
+
+【任务】根据用户指令，分析当前文件完整内容，输出修改后的完整文件。
+【输出格式】必须且仅输出一个代码块，用 ```tsx 或 ```mermaid 或 ```python 包裹，不要包含任何解释文字。
+【要求】输出完整的文件内容，不要省略或截断。保持代码风格一致。"""
+
+
 def _build_system_prompt(req: ChatRequest) -> str:
+    if req.modify_full_file and req.current_code:
+        return (
+            MODIFY_FULL_FILE_PROMPT
+            + f"\n\n当前文件完整内容：\n```\n{req.current_code}\n```"
+        )
+    if req.modify_selection:
+        return (
+            MODIFY_SELECTION_PROMPT
+            + f"\n\n选中的代码：\n```\n{req.modify_selection}\n```\n\n"
+            + (f"当前完整文件（供上下文参考）：\n```\n{req.current_code}\n```" if req.current_code else "")
+        )
     if req.conversation_mode == "plan":
         return PLAN_SYSTEM_PROMPT
     prompt = SYSTEM_PROMPT_TEMPLATE.format(
@@ -175,7 +205,8 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                     logger.info(f"[Chat] MemOS memory injected | conversation_id={req.conversation_id}")
 
     # LightRAG: 当有 project_id 时，从知识图谱检索上下文注入 system prompt
-    if req.project_id and converted:
+    # 跳过 AI 修改模式（选中/全文件均不需要项目知识检索）
+    if req.project_id and converted and not req.modify_selection and not req.modify_full_file:
         last_user = next((m for m in reversed(converted) if m.get("role") == "user"), None)
         if last_user:
             query = last_user.get("content", "").strip()
@@ -192,8 +223,22 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
     logger.info(f"[Chat] Starting request | model={model} | messages={len(openai_messages)}")
 
-    # Save user message to DB if conversation exists
-    if req.conversation_id and req.messages:
+    # Save user message to DB（普通对话写 messages，AI 修改模式写 ai_modify_messages）
+    if req.modify_selection or req.modify_full_file:
+        if req.project_id and req.scope_key and req.messages:
+            last_msg = req.messages[-1]
+            if last_msg.role == "user":
+                user_text = "".join(p.text for p in last_msg.parts if p.type == "text")
+                ref_code = req.modify_selection if req.modify_selection else None
+                db.add(AiModifyMessage(
+                    project_id=req.project_id,
+                    scope_key=req.scope_key,
+                    role="user",
+                    content=user_text,
+                    referenced_code=ref_code,
+                ))
+                await db.commit()
+    elif req.conversation_id and req.messages:
         last_msg = req.messages[-1]
         if last_msg.role == "user":
             user_text = "".join(p.text for p in last_msg.parts if p.type == "text")
@@ -211,6 +256,10 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         last_progress = 0
         start_time = time.time()
         token_count = 0
+        # #region agent log
+        _reasoning_chunks = 0
+        _content_chunks = 0
+        # #endregion
 
         # 在调用 LLM 之前计算输入 token 数
         full_prompt_text = "\n".join(m.get("content", "") for m in openai_messages)
@@ -304,6 +353,9 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                                 or ""
                             )
                             if reasoning:
+                                # #region agent log
+                                _reasoning_chunks += 1
+                                # #endregion
                                 if not thinking_sent:
                                     yield _sse_event("step", {"label": "解析中...", "status": "active"})
                                     thinking_sent = True
@@ -314,6 +366,9 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                             if not text:
                                 continue
 
+                            # #region agent log
+                            _content_chunks += 1
+                            # #endregion
                             full_text += text
 
                             # Detect phase transitions
@@ -365,6 +420,17 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         if token_count == 0 and full_text:
             token_count = max(1, len(full_text) // 4)
 
+        # #region agent log
+        if req.modify_selection or req.modify_full_file:
+            try:
+                import json as _json
+                _log = {"sessionId": "1c3078", "location": "chat.py:stream-complete", "message": "Backend stream complete (modify)", "data": {"full_text_len": len(full_text), "full_text_preview": full_text[:200] if full_text else "", "modify_selection": bool(req.modify_selection), "modify_full_file": bool(req.modify_full_file), "reasoning_chunks": _reasoning_chunks, "content_chunks": _content_chunks}, "hypothesisId": "H4,H5", "timestamp": int(time.time() * 1000)}
+                with open("/Users/zhenxingcheng/IdeaProjects/GenView/.cursor/debug-1c3078.log", "a") as _f:
+                    _f.write(_json.dumps(_log, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+        # #endregion
+
         logger.info(f"[Chat] Stream complete | tokens={token_count} | elapsed={elapsed:.1f}s | chars={len(full_text)}")
 
         # If stream ended while still in code block, mark the active step as done
@@ -378,7 +444,17 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         yield _sse_event("done", {"token_count": token_count, "elapsed": round(elapsed, 1)})
 
         # Save assistant message to DB after stream completes
-        if req.conversation_id and full_text:
+        if req.modify_selection or req.modify_full_file:
+            if req.project_id and req.scope_key and full_text:
+                db.add(AiModifyMessage(
+                    project_id=req.project_id,
+                    scope_key=req.scope_key,
+                    role="assistant",
+                    content=full_text,
+                ))
+                await db.commit()
+                logger.info(f"[Chat] AiModifyMessage saved | project_id={req.project_id} scope_key={req.scope_key}")
+        elif req.conversation_id and full_text:
             code_block, code_lang = _extract_code_block(full_text)
             db.add(Message(
                 conversation_id=req.conversation_id,
@@ -390,8 +466,8 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
             await db.commit()
             logger.info(f"[Chat] Message saved to DB | conversation_id={req.conversation_id}")
 
-        # MemOS: 将本轮对话写入记忆
-        if settings.memos_enabled and req.conversation_id and full_text:
+        # MemOS: 将本轮对话写入记忆（跳过 AI 修改模式）
+        if settings.memos_enabled and req.conversation_id and full_text and not req.modify_selection and not req.modify_full_file:
             last_user = next((m for m in reversed(converted) if m.get("role") == "user"), None)
             if last_user:
                 to_add = [

@@ -8,20 +8,37 @@ export interface ParsedContent {
   }[];
 }
 
+const CODE_BLOCK_LANG_PATTERN = "(tsx|typescript|ts|jsx|javascript|js|react|mermaid|python)";
+
+/** Map model output language tags to our canonical types */
+const LANGUAGE_ALIASES: Record<string, "tsx" | "mermaid" | "python"> = {
+  tsx: "tsx",
+  typescript: "tsx",
+  ts: "tsx",
+  jsx: "tsx",
+  javascript: "tsx",
+  js: "tsx",
+  react: "tsx",
+  mermaid: "mermaid",
+  python: "python",
+};
+
 /**
  * Extracts code blocks from LLM response text.
  * Handles mixed content with text and code blocks.
  * Supports multi-file: ```tsx:utils.ts or ```tsx:components/Chart.tsx
+ * Accepts typescript/ts/jsx as equivalent to tsx for AI modify compatibility.
  */
 export function parseResponse(content: string): ParsedContent {
-  // Match ```tsx:filename or ```tsx (default) or ```mermaid or ```python
-  const codeBlockRegex = /```(tsx|mermaid|python)(?::([^\n]+))?\s*\n([\s\S]*?)```/g;
+  // Match ```tsx, ```typescript, ```mermaid, ```python, etc.
+  const codeBlockRegex = new RegExp("```" + CODE_BLOCK_LANG_PATTERN + "(?::([^\\n]+))?\\s*\\n([\\s\\S]*?)```", "g");
   const codeBlocks: ParsedContent["codeBlocks"] = [];
   let text = content;
 
   let match;
   while ((match = codeBlockRegex.exec(content)) !== null) {
-    const language = match[1] as "tsx" | "mermaid" | "python";
+    const rawLang = match[1].toLowerCase();
+    const language = LANGUAGE_ALIASES[rawLang] ?? "tsx";
     const filename = match[2]?.trim();
     const code = match[3].trim();
     if (code.length > 0) {
@@ -29,8 +46,21 @@ export function parseResponse(content: string): ParsedContent {
     }
   }
 
+  // Fallback: match generic ```lang\n...\n``` (any lang) or ```\n...\n```
+  if (codeBlocks.length === 0) {
+    const genericRegex = /```(?:([a-zA-Z0-9+#-]*)\s*\n)?([\s\S]*?)```/g;
+    while ((match = genericRegex.exec(content)) !== null) {
+      const code = match[2].trim();
+      if (code.length > 0) {
+        const rawLang = (match[1] || "").toLowerCase();
+        const language = LANGUAGE_ALIASES[rawLang] ?? "tsx";
+        codeBlocks.push({ language, code });
+      }
+    }
+  }
+
   // Remove code blocks from text to keep only the narrative
-  text = content.replace(/```(tsx|mermaid|python)(?::[^\n]+)?\s*\n[\s\S]*?```/g, "").trim();
+  text = content.replace(new RegExp("```" + CODE_BLOCK_LANG_PATTERN + "(?::[^\\n]+)?\\s*\\n[\\s\\S]*?```", "g"), "").trim();
 
   return { text, codeBlocks };
 }
@@ -40,14 +70,18 @@ export function parseResponse(content: string): ParsedContent {
  * Used for debouncing rendering during streaming.
  */
 export function hasCompleteCodeBlock(content: string): boolean {
-  const openBlocks = (content.match(/```(tsx|mermaid|python)/g) || []).length;
-  const closeBlocks = (content.match(/```\s*$/gm) || []).length;
-  // Count ``` that appear after a code block opening
-  // A more reliable approach: count paired blocks
-  const fullBlockRegex = /```(tsx|mermaid|python)\s*\n[\s\S]*?```/g;
+  const openBlocks = (content.match(new RegExp("```" + CODE_BLOCK_LANG_PATTERN, "g")) || []).length;
+  const fullBlockRegex = new RegExp("```" + CODE_BLOCK_LANG_PATTERN + "\\s*\\n[\\s\\S]*?```", "g");
   const fullBlocks = (content.match(fullBlockRegex) || []).length;
   return fullBlocks > 0 && fullBlocks >= openBlocks;
 }
+
+/** Language variants for extraction (tsx accepts typescript/ts/jsx/js/react) */
+const EXTRACT_LANG_VARIANTS: Record<string, string> = {
+  tsx: "tsx|typescript|ts|jsx|javascript|js|react",
+  mermaid: "mermaid",
+  python: "python",
+};
 
 /**
  * Extract the last code block from streaming content,
@@ -57,16 +91,43 @@ export function extractLatestCodeBlock(
   content: string,
   language: "tsx" | "mermaid" | "python"
 ): string | null {
+  const langPattern = EXTRACT_LANG_VARIANTS[language] ?? language;
   const regex = new RegExp(
-    "```" + language + "\\s*\\n([\\s\\S]*?)(?:```|$)",
+    "```(" + langPattern + ")\\s*\\n([\\s\\S]*?)(?:```|$)",
     "g"
   );
   let lastMatch: string | null = null;
   let match;
   while ((match = regex.exec(content)) !== null) {
-    lastMatch = match[1].trim();
+    lastMatch = match[2].trim(); // group 2 is the code, group 1 is the lang tag
   }
   return lastMatch;
+}
+
+/**
+ * Extract code from possibly truncated/incomplete response.
+ * Handles: ```tsx\n... (no closing ```), or last ```block without proper close.
+ */
+export function extractFromIncompleteContent(
+  content: string,
+  language: "tsx" | "mermaid" | "python"
+): string | null {
+  const extracted = extractLatestCodeBlock(content, language);
+  if (extracted) return extracted;
+  const langPattern = EXTRACT_LANG_VARIANTS[language] ?? language;
+  const openRegex = new RegExp("```(" + langPattern + ")\\s*\\n([\\s\\S]*)$");
+  const m = content.match(openRegex);
+  if (m) {
+    const code = m[2].trim();
+    return code.length > 0 ? code : null;
+  }
+  const genericOpen = /```(?:[a-zA-Z0-9+#-]*)\s*\n([\s\S]*)$/;
+  const gm = content.match(genericOpen);
+  if (gm) {
+    const code = gm[1].trim();
+    return code.length > 0 ? code : null;
+  }
+  return null;
 }
 
 /**

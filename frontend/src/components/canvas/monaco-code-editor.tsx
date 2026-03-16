@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef } from "react";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { useMonacoEditorApiSetter, type MonacoEditorApi } from "@/contexts/monaco-editor-api-context";
 
 const Editor = dynamic(() => import("@monaco-editor/react").then((mod) => mod.Editor), {
   ssr: false,
@@ -28,8 +29,11 @@ interface MonacoCodeEditorProps {
   readOnly?: boolean;
 }
 
+/** Monaco editor instance from onMount - has getSelection, getModel, executeEdits */
 interface MonacoEditorInstance {
-  getModel: () => { getValue: () => string; setValue: (v: string) => void } | null;
+  getModel: () => { getValue: () => string; setValue: (v: string) => void; getValueInRange: (r: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }) => string } | null;
+  getSelection: () => { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } | null;
+  executeEdits: (source: string, edits: { range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }; text: string }[]) => boolean;
 }
 
 /**
@@ -41,12 +45,50 @@ export function MonacoCodeEditor({ value, onChange, language, readOnly = false }
   const editorRef = useRef<MonacoEditorInstance | null>(null);
   const isUserEditingRef = useRef(false);
   const lastExternalValueRef = useRef(value);
+  const setApi = useMonacoEditorApiSetter();
 
   const editTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleEditorMount = useCallback((_monaco: unknown, editor: MonacoEditorInstance) => {
-    editorRef.current = editor;
-  }, []);
+  const handleEditorMount = useCallback(
+    (editor: MonacoEditorInstance, _monaco: unknown) => {
+      editorRef.current = editor;
+      const api: MonacoEditorApi = {
+        getSelection: () => {
+          const sel = editor.getSelection();
+          if (!sel) return null;
+          return {
+            startLine: sel.startLineNumber,
+            startColumn: sel.startColumn,
+            endLine: sel.endLineNumber,
+            endColumn: sel.endColumn,
+          };
+        },
+        getSelectedText: () => {
+          const sel = editor.getSelection();
+          const model = editor.getModel();
+          if (!sel || !model) return "";
+          return model.getValueInRange(sel);
+        },
+        replaceSelection: (newText: string) => {
+          const sel = editor.getSelection();
+          if (!sel) return;
+          editor.executeEdits("ai-modify", [{ range: sel, text: newText }]);
+        },
+        hasSelection: () => {
+          const sel = editor.getSelection();
+          return !!sel && !(sel.startLineNumber === sel.endLineNumber && sel.startColumn === sel.endColumn);
+        },
+      };
+      setApi(api);
+    },
+    [setApi]
+  );
+
+  useEffect(() => {
+    return () => {
+      setApi(null);
+    };
+  }, [setApi]);
 
   const handleChange = useCallback(
     (newValue: string | undefined) => {

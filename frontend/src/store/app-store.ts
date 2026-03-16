@@ -17,6 +17,8 @@ export interface AppState {
   // Project & conversation tracking
   projectId: string | null;
   conversationId: string | null;
+  /** 当前编辑的页面 ID（从设计面板选择时设置），用于 AI 修改持久化 scope_key */
+  activePageId: string | null;
   /** Increment to trigger sidebar conversation list refresh */
   conversationListVersion: number;
   /** Increment to trigger sidebar pages list refresh */
@@ -64,6 +66,7 @@ export interface AppState {
   // Actions
   setProjectId: (id: string | null) => void;
   setConversationId: (id: string | null) => void;
+  setActivePageId: (id: string | null) => void;
   invalidateConversationList: () => void;
   invalidatePagesList: () => void;
   setAppName: (name: string) => void;
@@ -90,6 +93,7 @@ export const useAppStore = create<AppState>()(
     (set) => ({
   projectId: null,
   conversationId: null,
+  activePageId: null,
   conversationListVersion: 0,
   pagesListVersion: 0,
   appName: "GenView Dashboard",
@@ -116,6 +120,7 @@ export const useAppStore = create<AppState>()(
 
   setProjectId: (projectId) => set({ projectId }),
   setConversationId: (conversationId) => set({ conversationId }),
+  setActivePageId: (activePageId) => set({ activePageId }),
   invalidateConversationList: () =>
     set((s) => ({ conversationListVersion: s.conversationListVersion + 1 })),
   invalidatePagesList: () =>
