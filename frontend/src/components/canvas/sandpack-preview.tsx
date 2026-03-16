@@ -10,6 +10,7 @@ import {
 } from "@codesandbox/sandpack-react";
 import { useAppStore } from "@/store/app-store";
 import { generateSandpackFiles } from "@/lib/sandpack-files";
+import { MonacoCodeEditor } from "./monaco-code-editor";
 
 /**
  * Syncs currentCode from the Zustand store into the Sandpack sandbox.
@@ -46,6 +47,8 @@ function SandpackFileUpdater() {
 
 interface SandpackRendererProps {
   showCode: boolean;
+  useAdvancedEditor?: boolean;
+  setCurrentCode?: (code: string) => void;
 }
 
 /**
@@ -55,8 +58,10 @@ interface SandpackRendererProps {
  */
 export const SandpackRenderer = React.memo(function SandpackRenderer({
   showCode,
+  useAdvancedEditor = false,
+  setCurrentCode,
 }: SandpackRendererProps) {
-  const { appName, logoUrl, navLayout, theme, customTheme, navMenuItems, navBackgroundColor, appNameFontSize, appNameColor, extraFiles } = useAppStore();
+  const { appName, logoUrl, navLayout, theme, customTheme, navMenuItems, navBackgroundColor, appNameFontSize, appNameColor, extraFiles, currentCode } = useAppStore();
 
   // Capture current code at mount time (non-reactive — no re-render on code change)
   const initialCodeRef = useRef(useAppStore.getState().currentCode);
@@ -106,16 +111,25 @@ export const SandpackRenderer = React.memo(function SandpackRenderer({
       <SandpackFileUpdater />
       <div className="h-full flex flex-col min-h-0">
         <SandpackLayout>
-          {/* 始终挂载两者，用 CSS 控制显示，确保 bundler 持续运行、Preview 不空白 */}
+          {/* Code: SandpackCodeEditor (simple) or MonacoCodeEditor (advanced) */}
           <div
             className={showCode ? "h-full min-h-0 flex-1 flex flex-col" : "hidden"}
           >
-            <SandpackCodeEditor
-              style={{ flex: 1, minHeight: 0, height: "100%" }}
-              showLineNumbers
-              showTabs
-              readOnly
-            />
+            {showCode && useAdvancedEditor && setCurrentCode ? (
+              <MonacoCodeEditor
+                value={currentCode}
+                onChange={setCurrentCode}
+                language="tsx"
+                readOnly={false}
+              />
+            ) : (
+              <SandpackCodeEditor
+                style={{ flex: 1, minHeight: 0, height: "100%" }}
+                showLineNumbers
+                showTabs
+                readOnly
+              />
+            )}
           </div>
           <div
             className={!showCode ? "h-full min-h-0 flex-1 flex flex-col" : "hidden"}

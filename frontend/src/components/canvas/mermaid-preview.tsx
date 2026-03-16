@@ -25,7 +25,7 @@ export function MermaidPreview({ code, showCode }: MermaidPreviewProps) {
   const getSvgDimensions = (svgEl: SVGElement): { w: number; h: number } => {
     let sw = 0;
     let sh = 0;
-    const svgRect = svgEl.getBBox?.();
+    const svgRect = "getBBox" in svgEl ? (svgEl as SVGSVGElement).getBBox() : null;
     if (svgRect && svgRect.width > 0 && svgRect.height > 0) {
       sw = svgRect.width;
       sh = svgRect.height;
