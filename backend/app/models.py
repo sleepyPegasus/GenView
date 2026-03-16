@@ -1,7 +1,7 @@
 import datetime
 import uuid
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, func
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -165,3 +165,72 @@ class ProjectTimelineEvent(Base):
     project: Mapped["Project"] = relationship(back_populates="timeline_events")
 
     __table_args__ = (Index("ix_timeline_events_project_id", "project_id"),)
+
+
+class KgBuildHistory(Base):
+    """知识图谱构建历史"""
+
+    __tablename__ = "kg_build_history"
+
+    id: Mapped[str] = mapped_column(String(30), primary_key=True, default=_gen_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+
+    doc_count: Mapped[int] = mapped_column(Integer, default=0)
+    msg_count: Mapped[int] = mapped_column(Integer, default=0)
+    page_count: Mapped[int] = mapped_column(Integer, default=0)
+    timeline_count: Mapped[int] = mapped_column(Integer, default=0)
+    node_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    edge_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(30))  # success | error | no_documents
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (Index("ix_kg_build_history_project_id", "project_id"),)
+
+
+class KgQuerySession(Base):
+    """知识图谱查询会话"""
+
+    __tablename__ = "kg_query_sessions"
+
+    id: Mapped[str] = mapped_column(String(30), primary_key=True, default=_gen_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+
+    title: Mapped[str] = mapped_column(String(200), default="新对话")
+
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (Index("ix_kg_query_sessions_project_id", "project_id"),)
+
+
+class KgQueryMessage(Base):
+    """知识图谱查询历史消息"""
+
+    __tablename__ = "kg_query_messages"
+
+    id: Mapped[str] = mapped_column(String(30), primary_key=True, default=_gen_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    session_id: Mapped[str | None] = mapped_column(
+        String(30),
+        ForeignKey("kg_query_sessions.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
+    role: Mapped[str] = mapped_column(String(20))  # user | assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    query_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_kg_query_messages_project_id", "project_id"),
+        Index("ix_kg_query_messages_session_id", "session_id"),
+    )

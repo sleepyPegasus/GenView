@@ -229,5 +229,6 @@ class ChatRequest(BaseModel):
     conversation_mode: str = "agent"
     current_code: str = ""
     conversation_id: str | None = None
+    project_id: str | None = None
     # 本次请求覆盖配置，None 则用 settings.chat_max_rounds
     max_rounds: int | None = None

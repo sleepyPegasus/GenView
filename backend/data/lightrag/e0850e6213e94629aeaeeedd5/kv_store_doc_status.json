@@ -1,0 +1,422 @@
+{
+  "msg_af0729becaab459c9d37eb50b": {
+    "status": "processing",
+    "chunks_count": 7,
+    "chunks_list": [
+      "chunk-d2cb96576faa151b88bd30eadcd46812",
+      "chunk-96ee614928711cf33fca3719a30b2dad",
+      "chunk-948378e04fe1c17c350ee8fb986ec7c6",
+      "chunk-beca1cfe298a1c44427dfc4b41174f97",
+      "chunk-522ddcac0c0ecfef38bfb18ed41ea254",
+      "chunk-2ffc3be6a75096aa9c6794818c4ab0a3",
+      "chunk-f2aaec5c182fe4846753a267af3a3612"
+    ],
+    "content_summary": "[对话] 明天需要和客户\n明天需要和客户开会沟通如下方案，请评价该方案并给出介绍建议：一、调研背景\n1.1行业背景\n在钢铁冶金的现代化生产全流程中，加热炉是连接“炼钢（连铸）”与“轧钢”的核心枢纽。冷态或热态的连铸钢坯必须在加热炉内被均匀加热至特定的轧制温度（通常在 1100℃ - 1250℃ 之间），以赋予钢坯最佳的塑性和金相组织。\n加热炉犹如整条热轧产线的“咽喉”与“心脏”，其运行状态不仅直接决定了轧机的生产节奏（出钢太慢会导致轧机空转待料），其加热质量更直接决定了最终钢材的物理性能和表面质...",
+    "content_length": 8372,
+    "created_at": "2026-03-15T12:48:31.238161+00:00",
+    "updated_at": "2026-03-15T13:51:01.946977+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "metadata": {
+      "processing_start_time": 1773582661
+    }
+  },
+  "msg_30efaafd73524d41b69eedcf8": {
+    "status": "processed",
+    "chunks_count": 1,
+    "chunks_list": [
+      "chunk-ac7c7e768c03c8e9f5070c8444eb56d3"
+    ],
+    "content_summary": "[对话] 明天需要和客户\n生成完整的解决方案介绍词",
+    "content_length": 25,
+    "created_at": "2026-03-15T12:48:31.238197+00:00",
+    "updated_at": "2026-03-15T13:55:44.898237+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "metadata": {
+      "processing_start_time": 1773582300,
+      "processing_end_time": 1773582944
+    }
+  },
+  "msg_28ca141a6e04441e819caa2e4": {
+    "status": "failed",
+    "error_msg": "C[1/3]: chunk-a4b45b0500428491ffc574f2a27b43a0: LLM func: Worker execution timeout after 360s",
+    "content_summary": "[对话] 明天需要和客户\n你好！我是 GenView AI，你的资深工业软件产品顾问。\n\n仔细阅读了你准备的这份《加热炉数字化运营平台》方案，我的第一反应是：**这是一份质量极高、具备深厚行业Know-How且极具商业说服力的好方案。** \n\n方案没有停留在传统的“单纯上个MES”或“做个数据大屏”的表面文章，而是极其精准地抓住了钢铁冶金的核心矛盾点——**“工序产能倒挂”**与**“能耗与财务脱节（黑盒算账）”**。你提出的“从经验烧钢向算账烧钢跨越”以及“软测量修正与清洗模型”，切中了当前绝...",
+    "content_length": 2921,
+    "created_at": "2026-03-15T12:48:31.238177+00:00",
+    "updated_at": "2026-03-15T13:51:01.933991+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "metadata": {
+      "processing_start_time": 1773582300,
+      "processing_end_time": 1773582661
+    },
+    "chunks_list": []
+  },
+  "msg_80bb471cd6ea412c884e48b75": {
+    "status": "processing",
+    "chunks_count": 1,
+    "chunks_list": [
+      "chunk-2412d60a60db953621ffe7c829f3ce3f"
+    ],
+    "content_summary": "[对话] 明天需要和客户\n不可以反向控制，我们直接集成智能烧钢系统的scada",
+    "content_length": 39,
+    "created_at": "2026-03-15T12:48:31.238210+00:00",
+    "updated_at": "2026-03-15T13:55:44.906632+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "metadata": {
+      "processing_start_time": 1773582944
+    }
+  },
+  "msg_2a9a81ca854b496c864e7d17a": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n你好！我是 GenView AI。这两个技术点——**“热平衡反算软测量”**和**“时序批次动态规整”**，正是你这份方案拉开与竞品差距的核心“核武器”。\n\n在向客户汇报时，如果说前面的业务蓝图是“画饼”，这两项技术就是“做饼的配方”。由于当前我们在 **Plan（规划/灵感）模式**，我不会直接输出底层的 Python 或 SQL 运行时代码，而是为你**拆解业务逻辑、推演实现步骤，并以“概念 Demo 数据流”的形式**为你提供明天的会议弹药。\n\n如果客户后续明确...",
+    "content_length": 4018,
+    "created_at": "2026-03-15T12:48:31.238186+00:00",
+    "updated_at": "2026-03-15T12:48:31.238187+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_79c9815d808f434baf2e14449": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n这份反馈极其宝贵，涵盖了决策层（业务目标与工期）、学术层（算法深度与边界）、自动化层（底层硬件与网络边界）、数字化层（建模颗粒度）以及业务层（落地使用与风险规避）的全方位视角。\n\n针对各方建议，我对原方案进行了**全面重构与升维**。新方案主打**“工序向上延伸、排程降维打击、实施小步快跑、边界绝对清晰”**。\n\n以下是修改后的**《连铸-加热炉全局数字化精益运营平台深化方案 V2.0》**的核心内容提要，您可以直接用于应对明晚的汇报或内审。\n\n---\n\n# 连铸-加热...",
+    "content_length": 3712,
+    "created_at": "2026-03-15T12:48:31.238207+00:00",
+    "updated_at": "2026-03-15T12:48:31.238208+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_5535801d302547e28e491da4a": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n这是一个非常关键的实战问题！在明天的会上，当你说出“我们要引入实时热值进行机理反算”时，现场懂行的能源主管或仪表工程师100%会问：**“那你们对现场这套热值分析设备的配置要求是什么？大概得多少预算？”**\n\n如果你能当场对答如流，不仅能打消他们对硬件投入的顾虑，更能展现你们团队深入现场、懂硬件也懂软件的“软硬一体化”专业底色。\n\n为了稳妥应对，下面我为你拆解这两类设备的**差异、核心配置要求、市场价位区间，以及你在会上的“终极话术应答策略”**。\n\n---\n\n### ...",
+    "content_length": 2527,
+    "created_at": "2026-03-15T12:48:31.238194+00:00",
+    "updated_at": "2026-03-15T12:48:31.238195+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_f8c5d795a9064b168521f9bd1": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n重新整理一个新版本的方案出来",
+    "content_length": 27,
+    "created_at": "2026-03-15T12:48:31.238219+00:00",
+    "updated_at": "2026-03-15T12:48:31.238220+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_1bfe1e98a7a64ac79897dffd3": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n在线色谱仪或热值分析仪大概需要什么配置和价位",
+    "content_length": 35,
+    "created_at": "2026-03-15T12:48:31.238189+00:00",
+    "updated_at": "2026-03-15T12:48:31.238191+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_09e4c1d7251d47f996536e0a9": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n这是一份高度提炼、直击各方痛点、充分吸收会议反馈的**《连铸-轧钢全局数字化精益运营平台深化方案 V2.0》**。\n\n这份方案可以直接转化为明天的汇报PPT或立项红头文件。其核心基调是：**“工序向上延伸、排产降维打击、控制边界切割（只读不写）、体验丝滑融合”**。\n\n---\n\n# 连铸-轧钢全局数字化精益运营平台深化方案 V2.0 \n*(汇报专用版)*\n\n## 一、 方案定位与破局策略\n经过深入探讨，我们将本项目的定位从原先的“单体加热炉优化”正式升维为：**“串联连...",
+    "content_length": 3611,
+    "created_at": "2026-03-15T12:48:31.238222+00:00",
+    "updated_at": "2026-03-15T12:48:31.238223+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_a83d7998d74e449cb9c4a0d12": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n请给出热平衡反算软测量、时序动态规整数据的具体内容、解法步骤、实现过程以及demo",
+    "content_length": 54,
+    "created_at": "2026-03-15T12:48:31.238182+00:00",
+    "updated_at": "2026-03-15T12:48:31.238183+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_ab6e47c45a584f1abbecf3863": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n和客户沟通方案后，客户组织人员提供了如下这些建议，请根据建议，修改晚上一下方案：\n一、老板提出的当下核心诉求：\n1、工序设备延伸至连铸；\n2、涉及用户管理深度涵盖生产排程，并列入优先级；\n3、理清钢轧操作系统、能源管家平台、加热炉集控系统、智能烧钢系统及其它备件管家、流体管家等之间的关系，各系统或模块之间的画面切换给予感性体验；\n4、加人减天，尽快落地，响应对现有客户的承诺；\n\n二、某大学教授结合会议讨论内容及这个方案，提几点建议：\n1、下一次方案中请把系统与加热炉L1...",
+    "content_length": 2144,
+    "created_at": "2026-03-15T12:48:31.238204+00:00",
+    "updated_at": "2026-03-15T12:48:31.238205+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_0b56c5ec920241dcb21d09c03": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n不可以反向控制，我们直接集成智能烧钢系统的scada系统的监控页面，需要控制时直接免登录或者远程跳转过去控制页面进行控制。",
+    "content_length": 74,
+    "created_at": "2026-03-15T12:48:31.238213+00:00",
+    "updated_at": "2026-03-15T12:48:31.238214+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_7d15bdf54f5f4ae496cd9b507": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n这个策略调整**非常明智且极其关键**！在工业互联网落地中，明确切断“反向控制权”，是打消自动化部门和厂长所有安全顾虑的“定海神针”。\n\n这不仅彻底规避了网络安全风险和“双重操作”的责任扯皮，还完美响应了老板关于**“理清各系统关系，画面切换给予感性体验”**的核心诉求。\n\n基于您的这一重要指示，我将方案中涉及**“边界、控制与体验”**的部分进行了精准重写。明晚开会时，这段内容将成为你们拿下自动化和生产部门信任的“撒手锏”。\n\n---\n\n### 修改后的核心方案内容提...",
+    "content_length": 2097,
+    "created_at": "2026-03-15T12:48:31.238216+00:00",
+    "updated_at": "2026-03-15T12:48:31.238217+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "msg_74870b8e79114b9bbfc78642e": {
+    "status": "pending",
+    "content_summary": "[对话] 明天需要和客户\n这是一份为你量身定制的**“沉浸式、极具商业化说服力”的汇报演讲台本**。\n\n在明天的会议上，你的角色不仅仅是一个产品经理或售前顾问，而是**“懂工艺、懂底层、更懂企业经营算账的数字化架构师”**。\n\n这份介绍词分为**五个核心乐章**，请在汇报时**注意配合我标注的语气和互动提示**，这会带来极佳的控场效果。\n\n---\n\n### 开场白：破冰共情，直击痛点（约 3 分钟）\n*(配合PPT：显示调研现场照片或一段加热炉吐出红彤彤钢坯的视频)*\n\n“各位领导、专家，大家上...",
+    "content_length": 3074,
+    "created_at": "2026-03-15T12:48:31.238200+00:00",
+    "updated_at": "2026-03-15T12:48:31.238202+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_204831_9b782f79",
+    "chunks_list": []
+  },
+  "dup-84f79ac6b3553140ef43ce1109455a7d": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_7d15bdf54f5f4ae496cd9b507",
+    "content_length": 2097,
+    "created_at": "2026-03-15T13:45:00.397278+00:00",
+    "updated_at": "2026-03-15T13:45:00.397283+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_7d15bdf54f5f4ae496cd9b507, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_7d15bdf54f5f4ae496cd9b507",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-58ceddb2da5c66a349ac74b70e178c67": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_2a9a81ca854b496c864e7d17a",
+    "content_length": 4018,
+    "created_at": "2026-03-15T13:45:00.397514+00:00",
+    "updated_at": "2026-03-15T13:45:00.397517+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_2a9a81ca854b496c864e7d17a, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_2a9a81ca854b496c864e7d17a",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-da59b459e75812b8d24ddb3b710837e1": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_1bfe1e98a7a64ac79897dffd3",
+    "content_length": 35,
+    "created_at": "2026-03-15T13:45:00.397631+00:00",
+    "updated_at": "2026-03-15T13:45:00.397636+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_1bfe1e98a7a64ac79897dffd3, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_1bfe1e98a7a64ac79897dffd3",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-83af217fede160febe11c7884bd392d3": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_a83d7998d74e449cb9c4a0d12",
+    "content_length": 54,
+    "created_at": "2026-03-15T13:45:00.397753+00:00",
+    "updated_at": "2026-03-15T13:45:00.397756+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_a83d7998d74e449cb9c4a0d12, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_a83d7998d74e449cb9c4a0d12",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-2da5bd80c7f3428ba2c9c72dec026f47": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_79c9815d808f434baf2e14449",
+    "content_length": 3712,
+    "created_at": "2026-03-15T13:45:00.397848+00:00",
+    "updated_at": "2026-03-15T13:45:00.397850+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_79c9815d808f434baf2e14449, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_79c9815d808f434baf2e14449",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-ac3d6d8e1e7ef8ecb089ccc096557a07": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_30efaafd73524d41b69eedcf8",
+    "content_length": 25,
+    "created_at": "2026-03-15T13:45:00.397930+00:00",
+    "updated_at": "2026-03-15T13:45:00.397932+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_30efaafd73524d41b69eedcf8, Status: processing",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_30efaafd73524d41b69eedcf8",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-a623a03b6e9fbc16d9038ed0c9651e99": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_09e4c1d7251d47f996536e0a9",
+    "content_length": 3611,
+    "created_at": "2026-03-15T13:45:00.398008+00:00",
+    "updated_at": "2026-03-15T13:45:00.398010+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_09e4c1d7251d47f996536e0a9, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_09e4c1d7251d47f996536e0a9",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-c6440e822152e4e81a6d5a054152cbf4": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_28ca141a6e04441e819caa2e4",
+    "content_length": 2921,
+    "created_at": "2026-03-15T13:45:00.398080+00:00",
+    "updated_at": "2026-03-15T13:45:00.398082+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_28ca141a6e04441e819caa2e4, Status: processing",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_28ca141a6e04441e819caa2e4",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-c4bf04589bb8c5eb477bdbc9ca9a3890": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_80bb471cd6ea412c884e48b75",
+    "content_length": 39,
+    "created_at": "2026-03-15T13:45:00.398150+00:00",
+    "updated_at": "2026-03-15T13:45:00.398152+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_80bb471cd6ea412c884e48b75, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_80bb471cd6ea412c884e48b75",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-b12411f1be88331fc366e84809373881": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_5535801d302547e28e491da4a",
+    "content_length": 2527,
+    "created_at": "2026-03-15T13:45:00.398219+00:00",
+    "updated_at": "2026-03-15T13:45:00.398220+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_5535801d302547e28e491da4a, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_5535801d302547e28e491da4a",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-e080f5b5e6689088af4754b76346d416": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_74870b8e79114b9bbfc78642e",
+    "content_length": 3074,
+    "created_at": "2026-03-15T13:45:00.398287+00:00",
+    "updated_at": "2026-03-15T13:45:00.398288+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_74870b8e79114b9bbfc78642e, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_74870b8e79114b9bbfc78642e",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-ede599b3ffe2e7bd798d7d2f167ca8fd": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_ab6e47c45a584f1abbecf3863",
+    "content_length": 2144,
+    "created_at": "2026-03-15T13:45:00.398359+00:00",
+    "updated_at": "2026-03-15T13:45:00.398361+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_ab6e47c45a584f1abbecf3863, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_ab6e47c45a584f1abbecf3863",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-190da21a1e842b6fce4ca49958544912": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_f8c5d795a9064b168521f9bd1",
+    "content_length": 27,
+    "created_at": "2026-03-15T13:45:00.398445+00:00",
+    "updated_at": "2026-03-15T13:45:00.398449+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_f8c5d795a9064b168521f9bd1, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_f8c5d795a9064b168521f9bd1",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-8b60bd9699677ff994ec6134d1524be6": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_0b56c5ec920241dcb21d09c03",
+    "content_length": 74,
+    "created_at": "2026-03-15T13:45:00.398550+00:00",
+    "updated_at": "2026-03-15T13:45:00.398552+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_0b56c5ec920241dcb21d09c03, Status: pending",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_0b56c5ec920241dcb21d09c03",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  },
+  "dup-9261678c92db40283236360cccfa3999": {
+    "status": "failed",
+    "content_summary": "[DUPLICATE] Original document: msg_af0729becaab459c9d37eb50b",
+    "content_length": 8372,
+    "created_at": "2026-03-15T13:45:00.398632+00:00",
+    "updated_at": "2026-03-15T13:45:00.398635+00:00",
+    "file_path": "unknown_source",
+    "track_id": "insert_20260315_214500_cb15a05b",
+    "error_msg": "Content already exists. Original doc_id: msg_af0729becaab459c9d37eb50b, Status: failed",
+    "metadata": {
+      "is_duplicate": true,
+      "original_doc_id": "msg_af0729becaab459c9d37eb50b",
+      "original_track_id": "insert_20260315_204831_9b782f79"
+    },
+    "chunks_list": []
+  }
+}

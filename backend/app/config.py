@@ -15,6 +15,23 @@ class Settings(BaseSettings):
     memos_base_url: str = "https://memos.memtensor.cn/api/openmem/v1"
     memos_enabled: bool = False
 
+    # LightRAG 知识图谱
+    lightrag_working_dir: str = "./data/lightrag"
+    neo4j_uri: str = ""
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""
+    embedding_model: str = "text-embedding-3-small"
+    embedding_api_key: str = ""
+    embedding_base_url: str = "https://api.openai.com/v1"
+    # LightRAG 本地模式（Ollama，不消耗 API token）
+    lightrag_use_local: bool = False
+    lightrag_ollama_host: str = "http://localhost:11434"
+    lightrag_ollama_llm: str = "qwen2.5:7b"
+    lightrag_ollama_embed: str = "nomic-embed-text"
+    lightrag_ollama_embed_dim: int = 768  # 768|1024|1536，需与模型输出一致
+    # Qwen3.5 等 thinking 模型：False 关闭 thinking 以加速，True 启用推理链
+    lightrag_ollama_think: bool = False
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

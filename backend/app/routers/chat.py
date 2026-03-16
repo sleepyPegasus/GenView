@@ -12,6 +12,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import Message
 from app.schemas import ChatRequest
+from app.services.lightrag_service import get_retrieval_context
 from app.services.memos_client import add_message as memos_add_message
 from app.services.memos_client import search_memory as memos_search_memory
 
@@ -172,6 +173,17 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                 if memory_text:
                     system_prompt += f"\n\n{memory_text}"
                     logger.info(f"[Chat] MemOS memory injected | conversation_id={req.conversation_id}")
+
+    # LightRAG: 当有 project_id 时，从知识图谱检索上下文注入 system prompt
+    if req.project_id and converted:
+        last_user = next((m for m in reversed(converted) if m.get("role") == "user"), None)
+        if last_user:
+            query = last_user.get("content", "").strip()
+            if query:
+                kg_context = await get_retrieval_context(req.project_id, query)
+                if kg_context:
+                    system_prompt += f"\n\n{kg_context}"
+                    logger.info(f"[Chat] LightRAG context injected | project_id={req.project_id}")
 
     openai_messages = [{"role": "system", "content": system_prompt}]
     openai_messages.extend(converted)
