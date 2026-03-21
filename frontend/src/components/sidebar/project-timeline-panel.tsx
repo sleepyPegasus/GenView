@@ -11,9 +11,11 @@ import {
   deleteTimelineEvent,
   reorderTimelineEvents,
   uploadTimelineAttachment,
+  getProjectParticipantContacts,
   getBaseUrl,
   type TimelineEvent,
   type TimelineAttachment,
+  type Contact,
 } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -792,6 +794,72 @@ function GanttCanvas({
   );
 }
 
+function ParticipantSelector({
+  contacts,
+  selectedIds,
+  participantsText,
+  onIdsChange,
+  onTextChange,
+}: {
+  contacts: Contact[];
+  selectedIds: string[];
+  participantsText: string;
+  onIdsChange: (ids: string[]) => void;
+  onTextChange: (text: string) => void;
+}) {
+  const toggleContact = (id: string) => {
+    if (selectedIds.includes(id)) {
+      onIdsChange(selectedIds.filter((x) => x !== id));
+    } else {
+      onIdsChange([...selectedIds, id]);
+    }
+  };
+  if (contacts.length === 0) {
+    return (
+      <Input
+        placeholder="参与人（项目无客户时可手动填写）"
+        value={participantsText}
+        onChange={(e) => onTextChange(e.target.value)}
+        className="text-xs"
+      />
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      <span className="text-[11px]" style={{ color: "var(--gen-muted-fg)" }}>
+        参与人（从客户联系人中选择）:
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {contacts.map((c) => (
+          <label
+            key={c.id}
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs cursor-pointer"
+            style={{
+              background: selectedIds.includes(c.id) ? "var(--gen-primary)" : "var(--gen-muted)",
+              color: selectedIds.includes(c.id) ? "#fff" : "var(--gen-muted-fg)",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={selectedIds.includes(c.id)}
+              onChange={() => toggleContact(c.id)}
+              className="sr-only"
+            />
+            {c.name}
+            {c.role && <span className="opacity-80">({c.role})</span>}
+          </label>
+        ))}
+      </div>
+      <Input
+        placeholder="其他参与人（可选，自由文本）"
+        value={participantsText}
+        onChange={(e) => onTextChange(e.target.value)}
+        className="text-xs"
+      />
+    </div>
+  );
+}
+
 export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -809,9 +877,11 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
     description: "",
     outcome: "",
     participants: "",
+    participant_contact_ids: [] as string[],
     tags: "",
     pendingFiles: [] as File[],
   });
+  const [participantContacts, setParticipantContacts] = useState<Contact[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
   const [previewAttachment, setPreviewAttachment] = useState<TimelineAttachment | null>(null);
@@ -863,6 +933,16 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (!projectId) {
+      setParticipantContacts([]);
+      return;
+    }
+    getProjectParticipantContacts(projectId)
+      .then(setParticipantContacts)
+      .catch(() => setParticipantContacts([]));
+  }, [projectId]);
+
   const handleInit = async () => {
     if (!projectId) return;
     setInitLoading(true);
@@ -900,11 +980,12 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
         description: customForm.description.trim() || undefined,
         outcome: customForm.outcome.trim() || undefined,
         participants: customForm.participants.trim() || undefined,
+        participant_contact_ids: customForm.participant_contact_ids?.length ? customForm.participant_contact_ids : undefined,
         tags: customForm.tags ? customForm.tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean) : undefined,
       });
       const pendingFiles = [...customForm.pendingFiles];
       setAddingCustom(false);
-      setCustomForm({ title: "", start_date: "", end_date: "", event_time: "", phase_key: "", description: "", outcome: "", participants: "", tags: "", pendingFiles: [] });
+      setCustomForm({ title: "", start_date: "", end_date: "", event_time: "", phase_key: "", description: "", outcome: "", participants: "", participant_contact_ids: [], tags: "", pendingFiles: [] });
       let attachments: TimelineAttachment[] = [];
       for (const file of pendingFiles) {
         const u = await uploadTimelineAttachment(projectId, ev.id, file);
@@ -937,6 +1018,7 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
       description: ev.description ?? "",
       outcome: ev.outcome ?? "",
       participants: ev.participants ?? "",
+      participant_contact_ids: ev.participant_contact_ids ?? [],
       tags: ev.tags?.join(", ") ?? "",
       status: ev.status ?? undefined,
       start_date: ev.start_date ?? undefined,
@@ -967,6 +1049,7 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
         payload.description = editForm.description ?? undefined;
         payload.outcome = editForm.outcome ?? undefined;
         payload.participants = editForm.participants ?? undefined;
+        payload.participant_contact_ids = editForm.participant_contact_ids?.length ? editForm.participant_contact_ids : undefined;
         payload.tags = editForm.tags ? editForm.tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean) : undefined;
         payload.attachments = (editForm.attachments as TimelineAttachment[] | undefined) ?? undefined;
       }
@@ -1041,6 +1124,15 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
   };
 
   const formatDate = (d: string | null | undefined) => (d ? d.replace(/-/g, "/") : "-");
+  const participantDisplay = (ev: TimelineEvent) => {
+    const names = ev.participant_contact_ids?.length
+      ? ev.participant_contact_ids
+          .map((id) => participantContacts.find((c) => c.id === id)?.name)
+          .filter(Boolean)
+      : [];
+    const parts = [...names, ev.participants?.trim()].filter(Boolean);
+    return parts.join("、") || ev.participants || "";
+  };
   const exportAsMarkdown = useCallback(() => {
     const sorted = [...events].sort((a, b) => {
       const da = a.start_date || a.event_date || "0000-01-01";
@@ -1057,7 +1149,8 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
       lines.push(`- **时间**: ${dateRange}`);
       if (ev.description) lines.push(`- **描述**: ${ev.description}`);
       if (ev.outcome) lines.push(`- **成果**: ${ev.outcome}`);
-      if (ev.participants) lines.push(`- **参与人**: ${ev.participants}`);
+      const participantsStr = participantDisplay(ev);
+      if (participantsStr) lines.push(`- **参与人**: ${participantsStr}`);
       lines.push("");
     }
     const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
@@ -1068,7 +1161,7 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
     a.click();
     URL.revokeObjectURL(url);
     toast.success("已导出为 Markdown");
-  }, [events, formatDate]);
+  }, [events, formatDate, participantContacts]);
 
   const exportAsImage = useCallback(async () => {
     const el = timelineContentRef.current;
@@ -1432,11 +1525,12 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
                     ))}
                   </select>
                 </div>
-                <Input
-                  placeholder="参与人"
-                  value={customForm.participants}
-                  onChange={(e) => setCustomForm((f) => ({ ...f, participants: e.target.value }))}
-                  className="text-xs"
+                <ParticipantSelector
+                  contacts={participantContacts}
+                  selectedIds={customForm.participant_contact_ids}
+                  participantsText={customForm.participants}
+                  onIdsChange={(ids) => setCustomForm((f) => ({ ...f, participant_contact_ids: ids }))}
+                  onTextChange={(text) => setCustomForm((f) => ({ ...f, participants: text }))}
                 />
                 <Textarea
                   placeholder="过程描述（讨论了什么、推进了什么）"
@@ -1517,7 +1611,7 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
                   <button
                     onClick={() => {
                       setAddingCustom(false);
-                      setCustomForm({ title: "", start_date: "", end_date: "", event_time: "", phase_key: "", description: "", outcome: "", participants: "", tags: "", pendingFiles: [] });
+                      setCustomForm({ title: "", start_date: "", end_date: "", event_time: "", phase_key: "", description: "", outcome: "", participants: "", participant_contact_ids: [], tags: "", pendingFiles: [] });
                     }}
                     className="px-3 py-1.5 rounded text-xs"
                     style={{ color: "var(--gen-muted-fg)" }}
@@ -1606,11 +1700,12 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
                                 ))}
                               </select>
                             </div>
-                            <Input
-                              placeholder="参与人"
-                              value={editForm.participants ?? ""}
-                              onChange={(e) => setEditForm((f) => ({ ...f, participants: e.target.value }))}
-                              className="text-xs"
+                            <ParticipantSelector
+                              contacts={participantContacts}
+                              selectedIds={editForm.participant_contact_ids ?? []}
+                              participantsText={editForm.participants ?? ""}
+                              onIdsChange={(ids) => setEditForm((f) => ({ ...f, participant_contact_ids: ids }))}
+                              onTextChange={(text) => setEditForm((f) => ({ ...f, participants: text }))}
                             />
                             <Textarea
                               placeholder="过程描述"
@@ -1794,10 +1889,10 @@ export function ProjectTimelinePanel({ projectId }: ProjectTimelinePanelProps) {
                         <span style={{ color: "var(--gen-foreground)", whiteSpace: "pre-wrap" }}>{selectedEv.outcome}</span>
                       </div>
                     )}
-                    {selectedEv.participants && (
+                    {participantDisplay(selectedEv) && (
                       <div className="flex items-center gap-1">
                         <Users size={10} style={{ color: "var(--gen-muted-fg)" }} />
-                        <span style={{ color: "var(--gen-foreground)" }}>{selectedEv.participants}</span>
+                        <span style={{ color: "var(--gen-foreground)" }}>{participantDisplay(selectedEv)}</span>
                       </div>
                     )}
                     {selectedEv.attachments && selectedEv.attachments.length > 0 && (

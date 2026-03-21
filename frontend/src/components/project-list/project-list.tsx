@@ -11,8 +11,10 @@ import {
   restoreProject,
   purgeProject,
   listTimeline,
+  listCustomers,
   type Project,
   type TimelineEvent,
+  type Customer,
 } from "@/lib/api";
 import Link from "next/link";
 import { ThemeInjector } from "@/components/theme-injector";
@@ -30,9 +32,24 @@ export function ProjectList() {
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [editingCustomerId, setEditingCustomerId] = useState<string>("");
   const [deleteConfirm, setDeleteConfirm] = useState<Project | null>(null);
   const [purgeConfirm, setPurgeConfirm] = useState<Project | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createDialogName, setCreateDialogName] = useState("");
+  const [createDialogCustomerId, setCreateDialogCustomerId] = useState<string | "">("");
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [timelinesByProject, setTimelinesByProject] = useState<Record<string, TimelineEvent[]>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    listCustomers()
+      .then((list) => {
+        if (!cancelled) setCustomers(list);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,10 +90,22 @@ export function ProjectList() {
 
   const formatDate = (d: string | null | undefined) => (d ? d.replace(/-/g, "/") : "-");
 
-  const handleCreate = async () => {
+  const handleOpenCreateDialog = () => {
+    setCreateDialogName("");
+    setCreateDialogCustomerId("");
+    setCreateDialogOpen(true);
+  };
+
+  const handleCreateConfirm = async () => {
+    if (creating) return;
+    const name = createDialogName.trim() || "New Project";
     setCreating(true);
+    setCreateDialogOpen(false);
     try {
-      const p = await createProject({ name: "New Project" });
+      const p = await createProject({
+        name,
+        customer_id: createDialogCustomerId || null,
+      });
       setProjects((prev) => [p, ...prev]);
       router.push(`/projects/${p.id}`);
     } catch (err) {
@@ -96,6 +125,7 @@ export function ProjectList() {
     e.stopPropagation();
     setEditingId(p.id);
     setEditingName(p.name);
+    setEditingCustomerId(p.customer_id ?? "");
   };
 
   const handleSaveEdit = async () => {
@@ -104,12 +134,15 @@ export function ProjectList() {
       return;
     }
     try {
-      const updated = await updateProject(editingId, { name: editingName.trim() });
+      const updated = await updateProject(editingId, {
+        name: editingName.trim(),
+        customer_id: editingCustomerId || null,
+      });
       setProjects((prev) =>
-        prev.map((x) => (x.id === editingId ? { ...x, name: updated.name } : x))
+        prev.map((x) => (x.id === editingId ? { ...x, name: updated.name, customer_id: updated.customer_id, customer_name: updated.customer_name } : x))
       );
     } catch (err) {
-      toast.error("Failed to rename", {
+      toast.error("保存失败", {
         description: err instanceof Error ? err.message : "Unknown error",
       });
     } finally {
@@ -174,7 +207,7 @@ export function ProjectList() {
 
   return (
     <div
-      className="relative flex h-screen w-screen overflow-hidden"
+      className="relative flex h-full w-full overflow-hidden min-h-0"
       data-theme="modern-b2b"
       style={{
         background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
@@ -198,7 +231,7 @@ export function ProjectList() {
           backgroundSize: "64px 64px",
         }}
       />
-      <div className="relative z-10 flex flex-1 flex-col items-center justify-center p-8">
+      <div className="relative z-10 flex flex-1 flex-col items-center justify-center p-8 min-h-0 overflow-auto">
         <div
           className="w-full max-w-5xl rounded-2xl p-8 backdrop-blur-xl border"
           style={{
@@ -216,7 +249,7 @@ export function ProjectList() {
 
           <div className="flex gap-2 mb-6">
             <button
-              onClick={handleCreate}
+              onClick={handleOpenCreateDialog}
               disabled={creating}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors"
               style={{
@@ -275,24 +308,63 @@ export function ProjectList() {
                   }}
                 >
                   {editingId === p.id && tab === "active" ? (
-                    <input
-                      className="w-full text-sm px-3 py-2 rounded border"
-                      style={{
-                        background: "rgba(15, 23, 42, 0.8)",
-                        color: "#f1f5f9",
-                        borderColor: "rgba(255,255,255,0.2)",
-                      }}
-                      value={editingName}
-                      onChange={(e) => setEditingName(e.target.value)}
-                      onBlur={handleSaveEdit}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                        if (e.key === "Enter") handleSaveEdit();
-                        if (e.key === "Escape") setEditingId(null);
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      autoFocus
-                    />
+                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        className="w-full text-sm px-3 py-2 rounded border"
+                        style={{
+                          background: "rgba(15, 23, 42, 0.8)",
+                          color: "#f1f5f9",
+                          borderColor: "rgba(255,255,255,0.2)",
+                        }}
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === "Enter") handleSaveEdit();
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        placeholder="项目名称"
+                        autoFocus
+                      />
+                      <div>
+                        <label className="text-[11px] block mb-1" style={{ color: "#94a3b8" }}>
+                          所属客户
+                        </label>
+                        <select
+                          value={editingCustomerId}
+                          onChange={(e) => setEditingCustomerId(e.target.value)}
+                          className="w-full text-sm px-3 py-2 rounded border"
+                          style={{
+                            background: "rgba(15, 23, 42, 0.8)",
+                            color: "#f1f5f9",
+                            borderColor: "rgba(255,255,255,0.2)",
+                          }}
+                        >
+                          <option value="">不指定</option>
+                          {customers.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={handleSaveEdit}
+                          className="px-2 py-1.5 text-xs rounded font-medium"
+                          style={{ background: "var(--gen-primary)", color: "#fff" }}
+                        >
+                          保存
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="px-2 py-1.5 text-xs rounded"
+                          style={{ color: "#94a3b8" }}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <>
                       <div className="flex flex-col gap-2">
@@ -304,6 +376,20 @@ export function ProjectList() {
                             {p.name}
                           </span>
                         </div>
+                        {p.customer_name && (
+                          <div className="mt-1">
+                            <span
+                              className="text-xs px-2.5 py-1 rounded-md inline-flex items-center"
+                              style={{
+                                background: "rgba(59, 130, 246, 0.12)",
+                                color: "#93c5fd",
+                                border: "1px solid rgba(59, 130, 246, 0.35)",
+                              }}
+                            >
+                              {p.customer_name}
+                            </span>
+                          </div>
+                        )}
                         <div className="flex items-center gap-1 flex-wrap">
                           {tab === "active" ? (
                             <>
@@ -403,6 +489,92 @@ export function ProjectList() {
           )}
         </div>
       </div>
+
+      {/* Create project dialog */}
+      {createDialogOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.5)" }}
+          onClick={() => setCreateDialogOpen(false)}
+        >
+          <div
+            className="rounded-lg p-4 w-full max-w-sm mx-4"
+            style={{
+              background: "rgba(15, 23, 42, 0.95)",
+              border: "1px solid rgba(255,255,255,0.15)",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-medium mb-2" style={{ color: "#f1f5f9" }}>
+              新建项目
+            </h3>
+            <p className="text-xs mb-3" style={{ color: "#94a3b8" }}>
+              输入项目名称，创建后将进入项目详情页。
+            </p>
+            <input
+              type="text"
+              value={createDialogName}
+              onChange={(e) => setCreateDialogName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateConfirm();
+                if (e.key === "Escape") setCreateDialogOpen(false);
+              }}
+              placeholder="输入项目名称..."
+              className="w-full text-sm px-3 py-2 rounded border mb-3"
+              style={{
+                background: "rgba(15, 23, 42, 0.8)",
+                color: "#f1f5f9",
+                borderColor: "rgba(255,255,255,0.2)",
+              }}
+              autoFocus
+            />
+            <div className="mb-4">
+              <label className="text-xs block mb-1" style={{ color: "#94a3b8" }}>
+                所属客户
+              </label>
+              <select
+                value={createDialogCustomerId}
+                onChange={(e) => setCreateDialogCustomerId(e.target.value)}
+                className="w-full text-sm px-3 py-2 rounded border"
+                style={{
+                  background: "rgba(15, 23, 42, 0.8)",
+                  color: "#f1f5f9",
+                  borderColor: "rgba(255,255,255,0.2)",
+                }}
+              >
+                <option value="">不指定</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setCreateDialogOpen(false)}
+                className="px-3 py-1.5 text-xs rounded"
+                style={{ color: "#94a3b8" }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleCreateConfirm}
+                disabled={creating}
+                className="px-3 py-1.5 text-xs rounded font-medium flex items-center gap-1.5"
+                style={{
+                  background: "var(--gen-primary)",
+                  color: "#fff",
+                }}
+              >
+                {creating ? <Loader2 size={14} className="animate-spin" /> : null}
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation dialog */}
       {deleteConfirm && (

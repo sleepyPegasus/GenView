@@ -28,9 +28,31 @@ export interface Project {
     side?: { pageId: string; label: string }[];
   } | null;
   nav_menu_items?: NavMenuItem[] | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  code?: string | null;
+  contact?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Contact {
+  id: string;
+  customer_id: string;
+  name: string;
+  role?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Page {
@@ -116,7 +138,120 @@ export interface Message {
   content: string;
   code_block: string | null;
   code_language: string | null;
+  attachments?: { url: string; type?: "image" | "excel"; sheet_name?: string }[] | null;
   created_at: string;
+}
+
+export async function uploadChatAttachment(
+  projectId: string,
+  file: File
+): Promise<{ name: string; url: string; type?: "image" | "excel" }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/chat-attachments`,
+    { method: "POST", body: form }
+  );
+  if (!res.ok) throw new Error(`Failed to upload attachment: ${res.statusText}`);
+  const data = await res.json();
+  return { name: data.name, url: data.url, type: data.type };
+}
+
+export async function getExcelSheets(
+  projectId: string,
+  filename: string
+): Promise<{ sheets: string[] }> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/chat-attachments/${encodeURIComponent(filename)}/sheets`
+  );
+  if (!res.ok) throw new Error(`Failed to get Excel sheets: ${res.statusText}`);
+  return res.json();
+}
+
+export async function listCustomers(): Promise<Customer[]> {
+  const res = await fetch(`${getBaseUrl()}/api/customers`);
+  if (!res.ok) throw new Error(`Failed to list customers: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createCustomer(data: { name: string; code?: string; contact?: string }): Promise<Customer> {
+  const res = await fetch(`${getBaseUrl()}/api/customers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to create customer: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateCustomer(
+  customerId: string,
+  data: { name?: string; code?: string; contact?: string }
+): Promise<Customer> {
+  const res = await fetch(`${getBaseUrl()}/api/customers/${encodeURIComponent(customerId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to update customer: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteCustomer(customerId: string): Promise<void> {
+  const res = await fetch(`${getBaseUrl()}/api/customers/${encodeURIComponent(customerId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Failed to delete customer: ${res.statusText}`);
+}
+
+export async function listContacts(customerId: string): Promise<Contact[]> {
+  const res = await fetch(`${getBaseUrl()}/api/customers/${encodeURIComponent(customerId)}/contacts`);
+  if (!res.ok) throw new Error(`Failed to list contacts: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createContact(
+  customerId: string,
+  data: { name: string; role?: string; phone?: string; email?: string }
+): Promise<Contact> {
+  const res = await fetch(`${getBaseUrl()}/api/customers/${encodeURIComponent(customerId)}/contacts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to create contact: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateContact(
+  customerId: string,
+  contactId: string,
+  data: { name?: string; role?: string; phone?: string; email?: string }
+): Promise<Contact> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }
+  );
+  if (!res.ok) throw new Error(`Failed to update contact: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteContact(customerId: string, contactId: string): Promise<void> {
+  const res = await fetch(
+    `${getBaseUrl()}/api/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) throw new Error(`Failed to delete contact: ${res.statusText}`);
+}
+
+export async function getProjectParticipantContacts(projectId: string): Promise<Contact[]> {
+  const res = await fetch(`${getBaseUrl()}/api/projects/${encodeURIComponent(projectId)}/participant-contacts`);
+  if (!res.ok) throw new Error(`Failed to get participant contacts: ${res.statusText}`);
+  return res.json();
 }
 
 export async function listProjects(options?: { deleted?: boolean }): Promise<Project[]> {
@@ -195,6 +330,7 @@ export async function createProject(data: {
   logo_url?: string;
   nav_layout?: string;
   theme?: string;
+  customer_id?: string | null;
 }): Promise<Project> {
   const res = await fetch(`${getBaseUrl()}/api/projects`, {
     method: "POST",
@@ -204,6 +340,7 @@ export async function createProject(data: {
       logo_url: data.logo_url ?? "",
       nav_layout: data.nav_layout ?? "side",
       theme: data.theme ?? "modern-b2b",
+      customer_id: data.customer_id ?? null,
     }),
   });
   if (!res.ok) throw new Error(`Failed to create project: ${res.statusText}`);
@@ -230,6 +367,7 @@ export async function updateProject(
       side?: { pageId: string; label: string }[];
     } | null;
     nav_menu_items?: NavMenuItem[] | null;
+    customer_id?: string | null;
   }
 ): Promise<Project> {
   const res = await fetch(
@@ -364,6 +502,7 @@ export interface TimelineEvent {
   description?: string | null;
   outcome?: string | null;
   participants?: string | null;
+  participant_contact_ids?: string[] | null;
   tags?: string[] | null;
   attachments?: TimelineAttachment[] | null;
   sort_order: number;

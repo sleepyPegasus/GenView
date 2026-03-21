@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { useAppStore } from "@/store/app-store";
 import {
   parseResponse,
@@ -8,7 +8,7 @@ import {
   extractLatestCodeBlock,
   extractAllTsxBlocks,
 } from "@/lib/code-parser";
-import { listMessages, ensureProjectAndConversation, updateConversation, updateProject, getConversation, getProject, deleteMessage } from "@/lib/api";
+import { listMessages, ensureProjectAndConversation, updateConversation, updateProject, getConversation, getProject, deleteMessage, uploadChatAttachment, getExcelSheets, getBaseUrl } from "@/lib/api";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ModelSelector } from "@/components/ui/model-selector";
@@ -29,16 +29,24 @@ import {
   RotateCcw,
   Trash2,
   History,
+  ImagePlus,
+  FileSpreadsheet,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as Diff from "diff";
 
+type ChatAttachment =
+  | { type: "image_url"; url: string }
+  | { type: "excel"; url: string; sheet_name?: string; sheets?: string[] };
+
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: ChatAttachment[];
   thinking?: string;
   steps?: StepInfo[];
   progress?: number;
@@ -79,12 +87,33 @@ function getChatErrorInfo(
   }
 }
 
+const PARSE_CACHE_MAX = 80;
+const parseCache = new Map<string, { text: string; codeBlocks: { language: "tsx" | "mermaid" | "python"; code: string; filename?: string }[] }>();
+function parseResponseCached(content: string) {
+  if (content.length > 50000) return parseResponse(content);
+  const cached = parseCache.get(content);
+  if (cached) return cached;
+  const result = parseResponse(content);
+  if (parseCache.size >= PARSE_CACHE_MAX) {
+    const first = parseCache.keys().next().value;
+    if (first !== undefined) parseCache.delete(first);
+  }
+  parseCache.set(content, result);
+  return result;
+}
+
 function getChatUrl(): string {
   if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_BACKEND_URL) {
     return `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat`;
   }
   // Fallback: same-origin through Next.js proxy (may buffer SSE)
   return "/api/chat";
+}
+
+function toAttachmentDisplayUrl(url: string): string {
+  return url.startsWith("data:") || url.startsWith("http")
+    ? url
+    : getBaseUrl() + (url.startsWith("/") ? url : "/" + url);
 }
 
 export function ChatPanel() {
@@ -122,24 +151,61 @@ export function ChatPanel() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
-  const [inputText, setInputText] = useState("");
+  const inputRef = useRef<ChatInputHandle>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [visibleCount, setVisibleCount] = useState(6);
-  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const skipLoadForConvIdRef = useRef<string | null>(null);
   const lastSentTextRef = useRef<string>("");
+  const userIsNearBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const ROUND_SIZE = 6;
+  const BOTTOM_THRESHOLD = 120;
 
   useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    let rafId: number | null = null;
+    const onScroll = () => {
+      const nearBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight <= BOTTOM_THRESHOLD;
+      userIsNearBottomRef.current = nearBottom;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const near = container.scrollHeight - container.scrollTop - container.clientHeight <= BOTTOM_THRESHOLD;
+        setShowScrollToBottom((prev) => {
+          const shouldShow = isStreaming && !near;
+          return shouldShow !== prev ? shouldShow : prev;
+        });
+      });
+    };
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", onScroll);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [isStreaming]);
+
+  const lastScrollTimeRef = useRef(0);
+  useEffect(() => {
+    if (!userIsNearBottomRef.current) return;
+    const now = Date.now();
+    if (now - lastScrollTimeRef.current < 150) return;
+    lastScrollTimeRef.current = now;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
     setVisibleCount(6);
+    userIsNearBottomRef.current = true;
   }, [conversationId]);
+
+  useEffect(() => {
+    if (!isStreaming) setShowScrollToBottom(false);
+  }, [isStreaming]);
 
   const visibleMessages =
     messages.length <= ROUND_SIZE || isStreaming
@@ -192,51 +258,71 @@ export function ChatPanel() {
         id: m.id,
         role: m.role as "user" | "assistant",
         content: m.content,
+        ...(m.attachments?.length
+          ? {
+              attachments: m.attachments.map((a) => {
+                const fullUrl = a.url.startsWith("http") ? a.url : getBaseUrl() + (a.url.startsWith("/") ? a.url : "/" + a.url);
+                if (a.type === "excel") {
+                  return { type: "excel" as const, url: fullUrl, sheet_name: a.sheet_name };
+                }
+                return { type: "image_url" as const, url: fullUrl };
+              }),
+            }
+          : {}),
       }));
       setMessages(chatMsgs);
     });
     return () => { cancelled = true; };
   }, [conversationId]);
 
-  // During streaming, attempt to parse and preview code (only in Agent mode)
+  const codeExtractTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // During streaming, attempt to parse and preview code (only in Agent mode) - throttled
   useEffect(() => {
     if (conversationMode !== "agent" || !isStreaming || messages.length === 0) return;
     const lastMsg = messages[messages.length - 1];
     if (lastMsg.role !== "assistant" || !lastMsg.content) return;
 
-    const content = lastMsg.content;
+    if (codeExtractTimerRef.current) clearTimeout(codeExtractTimerRef.current);
+    codeExtractTimerRef.current = setTimeout(() => {
+      codeExtractTimerRef.current = null;
+      const content = messages[messages.length - 1]?.content ?? "";
+      if (!content) return;
 
-    const tsxCode = extractLatestCodeBlock(content, "tsx");
-    if (tsxCode && tsxCode.length > 50) {
-      const allFiles = extractAllTsxBlocks(content);
-      const mainCode = allFiles["/DashboardContent.tsx"] ?? tsxCode;
-      setCurrentCode(mainCode);
-      const { "/DashboardContent.tsx": _, ...rest } = allFiles;
-      setExtraFiles(rest);
-      setRenderMode("sandpack");
-      return;
-    }
+      const tsxCode = extractLatestCodeBlock(content, "tsx");
+      if (tsxCode && tsxCode.length > 50) {
+        const allFiles = extractAllTsxBlocks(content);
+        const mainCode = allFiles["/DashboardContent.tsx"] ?? tsxCode;
+        setCurrentCode(mainCode);
+        const { "/DashboardContent.tsx": _, ...rest } = allFiles;
+        setExtraFiles(rest);
+        setRenderMode("sandpack");
+        return;
+      }
 
-    const pythonCode = extractLatestCodeBlock(content, "python");
-    if (pythonCode && pythonCode.length > 20) {
-      setCurrentCode(pythonCode);
-      setExtraFiles({});
-      setRenderMode("python");
-      return;
-    }
-
-    if (hasCompleteCodeBlock(content)) {
-      const mermaidCode = extractLatestCodeBlock(content, "mermaid");
-      if (mermaidCode) {
-        setCurrentCode(mermaidCode);
-        setExtraFiles({});
-        setRenderMode("mermaid");
-      } else if (pythonCode) {
+      const pythonCode = extractLatestCodeBlock(content, "python");
+      if (pythonCode && pythonCode.length > 20) {
         setCurrentCode(pythonCode);
         setExtraFiles({});
         setRenderMode("python");
+        return;
       }
-    }
+
+      if (hasCompleteCodeBlock(content)) {
+        const mermaidCode = extractLatestCodeBlock(content, "mermaid");
+        if (mermaidCode) {
+          setCurrentCode(mermaidCode);
+          setExtraFiles({});
+          setRenderMode("mermaid");
+        } else if (pythonCode) {
+          setCurrentCode(pythonCode);
+          setExtraFiles({});
+          setRenderMode("python");
+        }
+      }
+    }, 350);
+    return () => {
+      if (codeExtractTimerRef.current) clearTimeout(codeExtractTimerRef.current);
+    };
   }, [conversationMode, messages, isStreaming, setCurrentCode, setExtraFiles, setRenderMode]);
 
   const handleSSEEvent = useCallback(
@@ -300,7 +386,7 @@ export function ChatPanel() {
             case "error": {
               updated.content = m.content + `\n\n${data.message}`;
               const code = (data.code as string) ?? "model_error";
-              if (code === "model_error") setModelSelectorOpen(true);
+              if (code === "model_error") inputRef.current?.openModelSelector();
               const { title, description } = getChatErrorInfo(code, String(data.message));
               const textToRetry = lastSentTextRef.current;
               toast.error(title, {
@@ -318,7 +404,7 @@ export function ChatPanel() {
   );
 
   const sendMessage = useCallback(
-    async (text: string, options?: { messagesOverride?: ChatMessage[] }) => {
+    async (text: string, options?: { messagesOverride?: ChatMessage[]; attachments?: ChatAttachment[] }) => {
       let cid = conversationId;
       const baseMessages = options?.messagesOverride ?? messages;
       if (!cid || !projectId) {
@@ -430,10 +516,12 @@ export function ChatPanel() {
       }
 
       lastSentTextRef.current = text;
+      const attachments = options?.attachments ?? [];
       const userMsg: ChatMessage = {
         id: `user-${Date.now()}`,
         role: "user",
         content: text,
+        ...(attachments.length > 0 ? { attachments } : {}),
       };
 
       const assistantId = `assistant-${Date.now()}`;
@@ -446,6 +534,7 @@ export function ChatPanel() {
         progress: 0,
       };
 
+      userIsNearBottomRef.current = true;
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
       useAppStore.getState().setIsStreaming(true);
@@ -462,10 +551,28 @@ export function ChatPanel() {
 
       try {
         // Build messages payload matching the backend ChatRequest schema
-        const allMessages = [...baseMessages, userMsg].map((m) => ({
-          role: m.role,
-          parts: [{ type: "text", text: m.content }],
-        }));
+        const base = getBaseUrl();
+        const toSendUrl = (u: string) =>
+          u.startsWith(base) ? u.slice(base.length) || u : u;
+        const allMessages = [...baseMessages, userMsg].map((m) => {
+          const parts: Array<
+            | { type: "text"; text: string }
+            | { type: "image_url"; image_url: string }
+            | { type: "excel_file"; excel_url: string; sheet_name?: string }
+          > = [];
+          if (m.content) parts.push({ type: "text", text: m.content });
+          for (const att of m.attachments ?? []) {
+            if (att.type === "image_url") {
+              parts.push({ type: "image_url", image_url: toSendUrl(att.url) });
+            } else if (att.type === "excel") {
+              parts.push({ type: "excel_file", excel_url: toSendUrl(att.url), sheet_name: att.sheet_name });
+            }
+          }
+          return {
+            role: m.role,
+            parts: parts.length > 0 ? parts : [{ type: "text" as const, text: " " }],
+          };
+        });
 
         // Call backend directly (bypass Next.js proxy which buffers SSE)
         const chatUrl = getChatUrl();
@@ -501,7 +608,7 @@ export function ChatPanel() {
             if (res.status === 401) errorCode = "invalid_api_key";
             else if (res.status === 429) errorCode = "rate_limit";
           }
-          if (errorCode === "model_error") setModelSelectorOpen(true);
+          if (errorCode === "model_error") inputRef.current?.openModelSelector();
           const { title, description } = getChatErrorInfo(errorCode, errText.slice(0, 200));
           toast.error(title, {
             description,
@@ -557,6 +664,7 @@ export function ChatPanel() {
         }
 
         // After stream completes, extract code for canvas (only in Agent mode)
+        // 使用 queueMicrotask 延后 store 更新，避免在 setState 更新函数内触发其他 setState
         if (requestMode === "agent") {
           setMessages((prev) => {
             const last = prev.find((m) => m.id === assistantId);
@@ -564,22 +672,29 @@ export function ChatPanel() {
               const parsed = parseResponse(last.content);
               if (parsed.codeBlocks.length > 0) {
                 const lastBlock = parsed.codeBlocks[parsed.codeBlocks.length - 1];
+                let mainCode: string;
+                let extraFiles: Record<string, string>;
+                let renderMode: "sandpack" | "python" | "mermaid";
                 if (lastBlock.language === "tsx") {
                   const allFiles = extractAllTsxBlocks(last.content);
-                  const mainCode = allFiles["/DashboardContent.tsx"] ?? lastBlock.code;
-                  setCurrentCode(mainCode);
+                  mainCode = allFiles["/DashboardContent.tsx"] ?? lastBlock.code;
                   const { "/DashboardContent.tsx": _d, ...rest } = allFiles;
-                  setExtraFiles(rest);
-                  setRenderMode("sandpack");
+                  extraFiles = rest;
+                  renderMode = "sandpack";
                 } else if (lastBlock.language === "python") {
-                  setCurrentCode(lastBlock.code);
-                  setExtraFiles({});
-                  setRenderMode("python");
+                  mainCode = lastBlock.code;
+                  extraFiles = {};
+                  renderMode = "python";
                 } else {
-                  setCurrentCode(lastBlock.code);
-                  setExtraFiles({});
-                  setRenderMode("mermaid");
+                  mainCode = lastBlock.code;
+                  extraFiles = {};
+                  renderMode = "mermaid";
                 }
+                queueMicrotask(() => {
+                  setCurrentCode(mainCode);
+                  setExtraFiles(extraFiles);
+                  setRenderMode(renderMode);
+                });
               }
             }
             return prev;
@@ -643,25 +758,25 @@ export function ChatPanel() {
     }
   }, [pendingPromptToSend, isStreaming, setPendingPromptToSend, sendMessage]);
 
-  const onSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!inputText.trim() || isStreaming) return;
-    const text = inputText;
-    setInputText("");
-    await sendMessage(text);
-  };
+  const onSubmit = useCallback(
+    async (text: string, attachments?: ChatAttachment[]) => {
+      if ((!text.trim() && !(attachments?.length)) || isStreaming) return;
+      await sendMessage(text, { attachments });
+    },
+    [isStreaming, sendMessage]
+  );
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      onSubmit();
-    }
-  };
+  const scrollToBottom = useCallback(() => {
+    userIsNearBottomRef.current = true;
+    setShowScrollToBottom(false);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
 
   return (
     <div className="h-full flex flex-col min-w-0" style={{ background: "var(--gen-card)" }}>
       {/* Chat messages */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div className="flex-1 min-h-0 relative">
+        <div ref={scrollContainerRef} className="h-full overflow-y-auto px-4 py-4 space-y-4">
         {messages.length > visibleCount && !isStreaming && (
           <div ref={topSentinelRef} className="h-1 flex-shrink-0" aria-hidden />
         )}
@@ -684,10 +799,33 @@ export function ChatPanel() {
               <div key={msg.id} className="flex gap-3 justify-end group">
                 <div className="flex flex-col items-end gap-1">
                   <div
-                    className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
+                    className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap space-y-2"
                     style={{ background: "var(--gen-primary)", color: "#ffffff" }}
                   >
                     {msg.content}
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {msg.attachments.map((att, i) =>
+                          att.type === "image_url" ? (
+                            <img
+                              key={i}
+                              src={toAttachmentDisplayUrl(att.url)}
+                              alt=""
+                              className="max-w-[200px] max-h-[150px] rounded-lg object-cover border border-white/20"
+                            />
+                          ) : (
+                            <div
+                              key={i}
+                              className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-white/20 text-xs"
+                              title={att.sheet_name ? `Sheet: ${att.sheet_name}` : "Excel"}
+                            >
+                              <FileSpreadsheet size={14} />
+                              <span>Excel{att.sheet_name ? ` · ${att.sheet_name}` : ""}</span>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div
                     className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -708,7 +846,7 @@ export function ChatPanel() {
                       type="button"
                       onClick={() => {
                         const quoted = "> " + msg.content.split("\n").join("\n> ") + "\n\n";
-                        setInputText((prev) => (prev ? prev + "\n" + quoted : quoted));
+                        inputRef.current?.appendText(quoted);
                       }}
                       className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
                       title="引用"
@@ -751,7 +889,7 @@ export function ChatPanel() {
           }
 
           // Assistant message
-          const parsed = parseResponse(msg.content);
+          const parsed = parseResponseCached(msg.content);
           const hasThinking = msg.thinking && msg.thinking.length > 0;
           const hasSteps = msg.steps && msg.steps.length > 0;
           const isLastAssistant = msg.id === messages[messages.length - 1]?.id;
@@ -820,9 +958,8 @@ export function ChatPanel() {
                             .slice(0, msgIdx)
                             .reverse()
                             .find((m) => m.role === "assistant");
-                          const prevTsx = prevAssistant
-                            ? parseResponse(prevAssistant.content).codeBlocks.filter((x) => x.language === "tsx")
-                            : [];
+                          const prevParsed = prevAssistant ? parseResponseCached(prevAssistant.content) : null;
+                          const prevTsx = prevParsed?.codeBlocks.filter((x) => x.language === "tsx") ?? [];
                           const prevCode =
                             b.language === "tsx" && prevTsx.length > 0
                               ? prevTsx[prevTsx.length - 1]?.code ?? ""
@@ -932,7 +1069,7 @@ export function ChatPanel() {
                     type="button"
                     onClick={() => {
                       const quoted = "> " + msg.content.split("\n").join("\n> ") + "\n\n";
-                      setInputText((prev) => (prev ? prev + "\n" + quoted : quoted));
+                      inputRef.current?.appendText(quoted);
                     }}
                     className="p-1 rounded hover:bg-[var(--gen-muted)] transition-colors"
                     title="引用"
@@ -1061,17 +1198,243 @@ export function ChatPanel() {
         )}
 
         <div ref={messagesEndRef} />
+        </div>
+        {showScrollToBottom && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="absolute bottom-4 right-4 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium shadow-lg transition-opacity hover:opacity-90"
+            style={{
+              background: "var(--gen-primary)",
+              color: "#fff",
+            }}
+          >
+            <ChevronDown size={14} />
+            回到底部
+          </button>
+        )}
       </div>
 
-      {/* Input area - Cursor style: input on top, Mode + Model below left */}
+      <ChatInput ref={inputRef} onSubmit={onSubmit} isStreaming={isStreaming} projectId={projectId ?? undefined} />
+    </div>
+  );
+}
+
+/* ── Sub-components ─────────────────────────────────── */
+
+export interface ChatInputHandle {
+  appendText(text: string): void;
+  openModelSelector(): void;
+}
+
+const MAX_ATTACHMENTS = 4;
+const MAX_IMAGE_SIZE_MB = 5;
+const MAX_EXCEL_SIZE_MB = 10;
+const ACCEPT_IMAGE = "image/png,image/jpeg,image/webp";
+const ACCEPT_EXCEL = ".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel";
+
+const ChatInput = forwardRef<ChatInputHandle, {
+  onSubmit: (text: string, attachments?: ChatAttachment[]) => void | Promise<void>;
+  isStreaming: boolean;
+  projectId?: string;
+}>(
+  function ChatInput({ onSubmit: onSubmitProp, isStreaming, projectId: projectIdProp }, ref) {
+    const [inputText, setInputText] = useState("");
+    const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+    const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const excelInputRef = useRef<HTMLInputElement>(null);
+    const { conversationMode, setConversationMode, model, setModel, projectId: storeProjectId } = useAppStore();
+    const pid = projectIdProp ?? storeProjectId;
+
+    useImperativeHandle(ref, () => ({
+      appendText: (text: string) =>
+        setInputText((prev) => (prev ? prev + "\n" + text : text)),
+      openModelSelector: () => setModelSelectorOpen(true),
+    }));
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files?.length) return;
+      const maxBytes = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+      const remaining = MAX_ATTACHMENTS - attachments.length;
+      for (let i = 0; i < Math.min(files.length, remaining); i++) {
+        const f = files[i];
+        if (!ACCEPT_IMAGE.split(",").some((t) => f.type === t.trim())) continue;
+        if (f.size > maxBytes) {
+          toast.error(`图片 ${f.name} 超过 ${MAX_IMAGE_SIZE_MB}MB`);
+          continue;
+        }
+        if (pid) {
+          try {
+            const { url } = await uploadChatAttachment(pid, f);
+            setAttachments((prev) => (prev.length >= MAX_ATTACHMENTS ? prev : [...prev, { type: "image_url", url }]));
+          } catch {
+            toast.error("图片上传失败");
+          }
+        } else {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result as string;
+            setAttachments((prev) => (prev.length >= MAX_ATTACHMENTS ? prev : [...prev, { type: "image_url", url: dataUrl }]));
+          };
+          reader.readAsDataURL(f);
+        }
+      }
+      e.target.value = "";
+    };
+
+    const handleExcelChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files?.length || !pid) return;
+      const maxBytes = MAX_EXCEL_SIZE_MB * 1024 * 1024;
+      const remaining = MAX_ATTACHMENTS - attachments.length;
+      if (remaining < 1) return;
+      const f = files[0];
+      const isExcel = /\.(xlsx|xls)$/i.test(f.name) || f.type?.includes("spreadsheet") || f.type === "application/vnd.ms-excel";
+      if (!isExcel) {
+        toast.error("请选择 Excel 文件 (.xlsx, .xls)");
+        e.target.value = "";
+        return;
+      }
+      if (f.size > maxBytes) {
+        toast.error(`Excel 文件超过 ${MAX_EXCEL_SIZE_MB}MB`);
+        e.target.value = "";
+        return;
+      }
+      try {
+        const { url, type } = await uploadChatAttachment(pid, f);
+        if (type === "excel") {
+          const filename = url.split("/chat-attachments/").pop() || "";
+          const { sheets } = await getExcelSheets(pid, filename);
+          const sheetName = sheets?.[0] ?? undefined;
+          setAttachments((prev) => [...prev, { type: "excel", url, sheet_name: sheetName, sheets: sheets ?? [] }]);
+        } else {
+          setAttachments((prev) => [...prev, { type: "image_url", url }]);
+        }
+      } catch {
+        toast.error("Excel 上传失败");
+      }
+      e.target.value = "";
+    };
+
+    const updateExcelSheet = (idx: number, sheet_name: string) => {
+      setAttachments((prev) =>
+        prev.map((a, i) => (i === idx && a.type === "excel" ? { ...a, sheet_name } : a))
+      );
+    };
+
+    const removeAttachment = (idx: number) => {
+      setAttachments((prev) => prev.filter((_, i) => i !== idx));
+    };
+
+    const handleSubmit = async (e?: React.FormEvent) => {
+      e?.preventDefault();
+      const canSend = inputText.trim() || attachments.length > 0;
+      if (!canSend || isStreaming) return;
+      const text = inputText;
+      const atts = [...attachments];
+      setInputText("");
+      setAttachments([]);
+      await onSubmitProp(text, atts.length > 0 ? atts : undefined);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+
+    const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith("image/") && attachments.length < MAX_ATTACHMENTS) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file && file.size <= MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+            if (pid) {
+              try {
+                const { url } = await uploadChatAttachment(pid, file);
+                setAttachments((prev) => [...prev, { type: "image_url", url }]);
+              } catch {
+                toast.error("图片上传失败");
+              }
+            } else {
+              const reader = new FileReader();
+              reader.onload = () => {
+                setAttachments((prev) => [...prev, { type: "image_url", url: reader.result as string }]);
+              };
+              reader.readAsDataURL(file);
+            }
+          }
+          break;
+        }
+      }
+    };
+
+    return (
       <div className="p-3 flex-shrink-0" style={{ borderTop: "1px solid var(--gen-border)" }}>
-        <form onSubmit={onSubmit} className="flex flex-col gap-2">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {attachments.map((att, i) =>
+                att.type === "image_url" ? (
+                  <div
+                    key={i}
+                    className="relative w-14 h-14 rounded-lg overflow-hidden border"
+                    style={{ borderColor: "var(--gen-border)" }}
+                  >
+                    <img src={toAttachmentDisplayUrl(att.url)} alt="" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(i)}
+                      className="absolute top-0.5 right-0.5 p-0.5 rounded-full"
+                      style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    key={i}
+                    className="relative flex items-center gap-1.5 px-2 py-1.5 rounded-lg border min-w-[120px]"
+                    style={{ borderColor: "var(--gen-border)" }}
+                  >
+                    <FileSpreadsheet size={16} />
+                    {att.sheets?.length ? (
+                      <select
+                        className="text-xs bg-transparent border-none outline-none flex-1 min-w-0 max-w-[90px]"
+                        value={att.sheet_name ?? att.sheets[0]}
+                        onChange={(ev) => updateExcelSheet(i, ev.target.value)}
+                      >
+                        {att.sheets.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs truncate max-w-[80px]">{att.sheet_name ?? "Sheet"}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(i)}
+                      className="p-0.5 rounded-full hover:bg-[var(--gen-muted)]"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )
+              )}
+            </div>
+          )}
           <div className="flex gap-2">
             <Textarea
               data-testid="chat-input"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder={
                 conversationMode === "plan"
                   ? "与 AI 对话、头脑风暴、激发灵感..."
@@ -1080,14 +1443,51 @@ export function ChatPanel() {
               className="min-h-[88px] max-h-[240px] resize-none flex-1"
               rows={2}
             />
-            <Button
-              data-testid="chat-send"
-              type="submit"
-              size="icon"
-              disabled={isStreaming || !inputText.trim()}
-            >
-              <Send size={16} />
-            </Button>
+            <div className="flex flex-col gap-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPT_IMAGE}
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <input
+                ref={excelInputRef}
+                type="file"
+                accept={ACCEPT_EXCEL}
+                className="hidden"
+                onChange={handleExcelChange}
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                disabled={isStreaming || attachments.length >= MAX_ATTACHMENTS}
+                onClick={() => fileInputRef.current?.click()}
+                title="上传图片"
+              >
+                <ImagePlus size={16} />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                disabled={isStreaming || attachments.length >= MAX_ATTACHMENTS || !pid}
+                onClick={() => excelInputRef.current?.click()}
+                title="上传 Excel"
+              >
+                <FileSpreadsheet size={16} />
+              </Button>
+              <Button
+                data-testid="chat-send"
+                type="submit"
+                size="icon"
+                disabled={isStreaming || (!inputText.trim() && attachments.length === 0)}
+              >
+                <Send size={16} />
+              </Button>
+            </div>
           </div>
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -1100,7 +1500,7 @@ export function ChatPanel() {
                 onChange={(e) => {
                   const v = e.target.value as "plan" | "agent";
                   setConversationMode(v);
-                  if (projectId) updateProject(projectId, { conversation_mode: v }).catch(() => {});
+                  if (pid) updateProject(pid, { conversation_mode: v }).catch(() => {});
                 }}
                 className="h-8 w-[90px] text-xs"
               />
@@ -1109,7 +1509,7 @@ export function ChatPanel() {
                   value={model}
                   onChange={(v) => {
                     setModel(v);
-                    if (projectId) updateProject(projectId, { model: v }).catch(() => {});
+                    if (pid) updateProject(pid, { model: v }).catch(() => {});
                   }}
                   open={modelSelectorOpen}
                   onOpenChange={setModelSelectorOpen}
@@ -1119,11 +1519,9 @@ export function ChatPanel() {
           </div>
         </form>
       </div>
-    </div>
-  );
-}
-
-/* ── Sub-components ─────────────────────────────────── */
+    );
+  }
+);
 
 function ProgressBar({ progress }: { progress: number }) {
   return (

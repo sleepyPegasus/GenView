@@ -14,7 +14,7 @@ logging.basicConfig(
 from app.config import settings
 from app.database import engine
 from app.models import Base
-from app.routers import chat, conversations, knowledge, models_router, pages, projects, timeline
+from app.routers import chat, conversations, customers, knowledge, models_router, pages, projects, timeline
 
 
 @asynccontextmanager
@@ -37,6 +37,7 @@ app.add_middleware(
 
 app.include_router(chat.router)
 app.include_router(projects.router)
+app.include_router(customers.router)
 app.include_router(knowledge.router)
 app.include_router(timeline.router)
 app.include_router(pages.router)

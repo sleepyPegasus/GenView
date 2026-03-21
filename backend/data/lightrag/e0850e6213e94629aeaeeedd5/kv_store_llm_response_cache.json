@@ -284,5 +284,105 @@
     "create_time": 1773671900,
     "update_time": 1773671900,
     "_id": "hybrid:keywords:0bd9daa321da1ab20710553b38328495"
+  },
+  "hybrid:keywords:38d5464424ef14d0da2cafa6d5591a05": {
+    "return": "{\"high_level_keywords\": [\"POC \\u5408\\u540c\", \"\\u529f\\u80fd\\u62a5\\u4ef7\", \"\\u4ef7\\u683c\\u6838\\u7b97\", \"\\u6210\\u672c\\u52a0\\u6210\\u6a21\\u578b\"], \"low_level_keywords\": [\"\\u6570\\u636e\\u5e95\\u5ea7\", \"\\u8c03\\u5ea6\\u6392\\u4ea7\\u7cfb\\u7edf\", \"\\u667a\\u6167\\u9a7e\\u9a76\\u8231\\u5927\\u5c4f\", \"\\u5b9e\\u73b0\\u6761\\u4ef6\", \"\\u6240\\u9700\\u6570\\u636e\\u6e05\\u5355\", \"\\u5ba2\\u6237\\u914d\\u5408\\u9879\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "现在客户明确签署POC合同，需要我们提供报价，聚焦在数据底座、调度排产系统、智慧驾驶舱大屏三个功能，报价需要突出POC的特性，强调可实现性，备注里面需要增加实现该功能所需要的条件（所需数据清单、客户所需配合项等），请根据这个要求列出报价所需要的功能清单，并按照功能清单，从成本加10%利润的角度进行价格核算。",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773714171,
+    "update_time": 1773714171,
+    "_id": "hybrid:keywords:38d5464424ef14d0da2cafa6d5591a05"
+  },
+  "hybrid:keywords:9b3fc975516b1cd709df7561820a6b1b": {
+    "return": "{\"high_level_keywords\": [\"\\u8c03\\u5ea6\\u9700\\u6c42\", \"\\u529f\\u80fd\\u6e05\\u5355\\u8c03\\u6574\", \"\\u8f67\\u673a\\u505c\\u673a\\u5206\\u7c7b\"], \"low_level_keywords\": [\"\\u975e\\u8ba1\\u5212\\u6027\\u505c\\u673a\", \"\\u8ba1\\u5212\\u6027\\u505c\\u673a\", \"\\u8f67\\u673a\", \"\\u52a0\\u70ed\\u7089\", \"\\u6e29\\u5ea6\\u63a7\\u5236\\u63aa\\u65bd\", \"\\u70e7\\u706b\\u5236\\u5ea6\", \"\\u6b63\\u5e38\\u751f\\u4ea7\", \"\\u505c\\u4ea7\\u4e0d\\u505c\\u7089\", \"\\u505c\\u4ea7\\u4e14\\u505c\\u7089\", \"\\u5c0f\\u4e8e3\\u5c0f\\u65f6\", \"\\u5927\\u4e8e\\u7b49\\u4e8e3\\u5c0f\\u65f6\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "客户明确了调度需求为三个细分场景: 1）非计划性停机，小于3小时的轧机停机；2）计划性停机，\n大于等于3小时停机 （停产不停炉；停产且停炉），遵守温度控制措施以及烧火制度调控加热炉；\n3）正常生产。请根据如上描述重新调整功能清单。",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773716392,
+    "update_time": 1773716392,
+    "_id": "hybrid:keywords:9b3fc975516b1cd709df7561820a6b1b"
+  },
+  "hybrid:keywords:e35e2193d7d95bcf5817a9cefeda43b1": {
+    "return": "{\"high_level_keywords\": [\"\\u5546\\u4e1a\\u7528\\u8bed\", \"\\u529f\\u80fd\\u6e05\\u5355\\u8bf4\\u660e\", \"\\u8be2\\u4ef7\\u8c03\\u6574\"], \"low_level_keywords\": [\"\\u62a5\\u4ef7\", \"\\u5546\\u4e1a\\u7528\\u8bed\", \"\\u529f\\u80fd\\u6e05\\u5355\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "请使用报价商业用语调整功能清单说明",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773716587,
+    "update_time": 1773716587,
+    "_id": "hybrid:keywords:e35e2193d7d95bcf5817a9cefeda43b1"
+  },
+  "hybrid:keywords:74457d16e52f9d190f53e9ffec166049": {
+    "return": "{\"high_level_keywords\": [\"\\u667a\\u6167\\u8c03\\u5ea6\\u4e0e\\u6392\\u4ea7\\u4e2d\\u67a2\", \"\\u751f\\u4ea7\\u6001\\u52bf\\u7efc\\u5408\\u9a7e\\u9a76\\u8231\", \"\\u529f\\u80fd\\u6e05\\u5355\", \"\\u9636\\u6bb5\\u4e00\", \"\\u9636\\u6bb5\\u4e8c\", \"\\u529f\\u80fd\\u6df1\\u5316\", \"\\u529f\\u80fd\\u6269\\u5c55\"], \"low_level_keywords\": [\"\\u8fde\\u94f8\", \"\\u7269\\u6d41\", \"\\u52a0\\u70ed\", \"\\u8f67\\u5236\", \"\\u7518\\u7279\\u56fe\", \"\\u4fdd\\u6e29\\u5751\", \"\\u6392\\u4ea7\\u4f18\\u5316\", \"\\u5e94\\u6025\\u7f13\\u51b2\", \"\\u964d\\u7d1a\\u63a7\\u706b\", \"\\u80fd\\u6d41\\u6838\\u7b97\", \"\\u5de5\\u827a\\u53c2\\u6570\", \"\\u7ecf\\u8425\\u6307\\u6807\", \"\\u78b3\\u6392\\u7ba1\\u7406\", \"\\u70ed\\u88c5\\u7387\", \"\\u964d\\u672c\\u4f53\\u73b0\", \"\\u73ed\\u7ec4\\u80fd\\u6548\", \"\\u78b3\\u6392\\u6982\\u89c8\", \"\\u7535\\u5b50\\u4ea4\\u63a5\\u73ed\", \"\\u53f0\\u8d26\\u62a5\\u8868\", \"\\u8d22\\u52a1\\u5ba1\\u8ba1\", \"\\u751f\\u4ea7\\u5ba1\\u8ba1\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "现在客户认可了我们提供的如下的阶段一的功能清单：“1\t智慧调度与排产中枢\t\n1.1\t跨工序排程视图\t连铸-物流-加热-轧制四级甘特图动态渲染。\n\t\t\n\t\t\n\t\t\n\t\t\n\t\t\n1.2\t保温坑容量监控与流向分配\t保温坑调度，最大化利用\n1.3\t正常生产排产优化模块\t消除平稳期的节奏错位与过烧\n1.4\t非计划短停(<3h) 应急缓冲模块\t应对突发断链，防止后方堵死\n1.5\t计划性长停(≥3h) 降级控火模块\t数字化执行《烧火操作制度》\n1.6\t批次级能流核算与追溯模型\t能耗核算\n1.7\t业务模型与参数配置中心\t工艺参数库（驻炉时长约束、容量限制等）可视化配置。\n2\t生产态势综合驾驶舱\t\n2.1\t经营与碳排管理仪表盘\t核心指标池汇聚综合热装率、总降本体现、班组能效排名及月度碳排概览。\n2.2\t电子交接班与台账报表\t自动生成满足财务与生产审计的标准业务导出报表”，想继续让我们提供在这个阶段一的基础之上如果做阶段二还有哪些功能（深化和功能扩展方面），请帮我思考一下列出来",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773733684,
+    "update_time": 1773733684,
+    "_id": "hybrid:keywords:74457d16e52f9d190f53e9ffec166049"
+  },
+  "hybrid:keywords:1ba990d5320c97374f826ad51e2b0c7c": {
+    "return": "{\"high_level_keywords\": [\"\\u8c03\\u5ea6\\u6a21\\u578b\\u6027\\u80fd\\u4f18\\u5316\", \"\\u8c03\\u5ea6\\u6a21\\u578b\\u573a\\u666f\\u6269\\u5c55\", \"\\u53cd\\u5411\\u63a7\\u5236\\u9650\\u5236\"], \"low_level_keywords\": [\"\\u8c03\\u5ea6\\u6a21\\u578b\", \"\\u6027\\u80fd\\u4f18\\u5316\", \"\\u573a\\u666f\\u6269\\u5c55\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "不能直接反向控制，能不能考虑调度模型的性能优化方面和调度模型的场景扩展方面",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773734509,
+    "update_time": 1773734509,
+    "_id": "hybrid:keywords:1ba990d5320c97374f826ad51e2b0c7c"
   }
 }

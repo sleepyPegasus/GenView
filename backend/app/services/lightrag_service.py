@@ -687,7 +687,7 @@ async def get_retrieval_context(project_id: str, question: str, db: AsyncSession
             return None
         return (
             "\n\n【项目知识图谱检索到的相关上下文，供参考】\n"
-            + "\n".join(parts[:50])  # 限制条数避免超长
+            + "\n".join(parts[:25])  # 限制条数以降低 token 消耗
         )
     except Exception as e:
         logger.debug(f"[LightRAG] get_retrieval_context failed: {e}")

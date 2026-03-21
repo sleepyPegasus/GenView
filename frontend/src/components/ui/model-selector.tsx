@@ -137,7 +137,7 @@ export function ModelSelector({ value, onChange, open: controlledOpen, onOpenCha
       {/* Dropdown */}
       {open && (
         <div
-          className="absolute z-50 mt-1 w-full min-w-[320px] right-0 rounded-lg shadow-lg"
+          className="absolute bottom-full left-0 z-50 mb-1 w-full min-w-[320px] rounded-lg shadow-lg"
           style={{
             border: "1px solid var(--gen-border)",
             background: "var(--gen-card)",

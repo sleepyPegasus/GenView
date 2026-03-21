@@ -14,6 +14,53 @@ def _gen_id() -> str:
     return uuid.uuid4().hex[:25]
 
 
+class Customer(Base):
+    """客户信息，用于标识项目所属客户"""
+    __tablename__ = "customers"
+
+    id: Mapped[str] = mapped_column(String(30), primary_key=True, default=_gen_id)
+    name: Mapped[str] = mapped_column(String(200))
+    code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    contact: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    projects: Mapped[list["Project"]] = relationship(
+        back_populates="customer", foreign_keys="[Project.customer_id]"
+    )
+    contacts: Mapped[list["Contact"]] = relationship(
+        back_populates="customer", cascade="all, delete-orphan"
+    )
+
+
+class Contact(Base):
+    """客户联系人"""
+    __tablename__ = "contacts"
+
+    id: Mapped[str] = mapped_column(String(30), primary_key=True, default=_gen_id)
+    customer_id: Mapped[str] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE")
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    customer: Mapped["Customer"] = relationship(back_populates="contacts")
+
+    __table_args__ = (Index("ix_contacts_customer_id", "customer_id"),)
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -31,6 +78,9 @@ class Project(Base):
     app_name_color: Mapped[str | None] = mapped_column(String(30), nullable=True, default=None)
     nav_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
     nav_menu_items: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True, default=None)
+    customer_id: Mapped[str | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -50,6 +100,14 @@ class Project(Base):
     timeline_events: Mapped[list["ProjectTimelineEvent"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    customer: Mapped["Customer | None"] = relationship(
+        back_populates="projects", foreign_keys="[Project.customer_id]",
+        lazy="joined"
+    )
+
+    @property
+    def customer_name(self) -> str | None:
+        return self.customer.name if self.customer else None
 
 
 class Conversation(Base):
@@ -92,6 +150,7 @@ class Message(Base):
     )
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text, default="")
+    attachments: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)  # [{"url": str}, ...]
     code_block: Mapped[str | None] = mapped_column(Text, nullable=True)
     code_language: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
@@ -152,6 +211,7 @@ class ProjectTimelineEvent(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     outcome: Mapped[str | None] = mapped_column(Text, nullable=True)
     participants: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    participant_contact_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # [contact_id, ...]
     tags: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     attachments: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # [{"name": str, "url": str}, ...]
 

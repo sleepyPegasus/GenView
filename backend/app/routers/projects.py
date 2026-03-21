@@ -1,19 +1,130 @@
 import datetime
+import re
+import uuid
+from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from sqlalchemy import or_
 
 from app.database import get_db
-from app.models import AiModifyMessage, Conversation, Message, Page, Project, ProjectTimelineEvent
-from app.schemas import AiModifyMessageOut, ProjectCreate, ProjectOut, ProjectUpdate
+from app.models import AiModifyMessage, Contact, Conversation, Message, Page, Project, ProjectTimelineEvent
+from app.schemas import AiModifyMessageOut, ContactOut, ProjectCreate, ProjectOut, ProjectUpdate
 from app.services.export_service import generate_vite_project
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+CHAT_UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads" / "chat"
+
+
+def _safe_filename(name: str) -> str:
+    base = re.sub(r"[^\w\s.-]", "", name)[:80] or "file"
+    return f"{uuid.uuid4().hex[:12]}_{base}".strip()
+
+
+ALLOWED_IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp")
+ALLOWED_EXCEL_TYPES = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+)
+ALLOWED_EXCEL_EXT = (".xlsx", ".xls")
+
+
+def _is_excel_file(filename: str, content_type: str | None) -> bool:
+    if filename:
+        ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext in ALLOWED_EXCEL_EXT:
+            return True
+    return content_type in ALLOWED_EXCEL_TYPES if content_type else False
+
+
+def _is_image_file(content_type: str | None) -> bool:
+    return bool(content_type and content_type.startswith("image/"))
+
+
+@router.post("/{project_id}/chat-attachments")
+async def upload_chat_attachment(
+    project_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload an image or Excel file for chat (persisted for message attachments)."""
+    project = await db.get(Project, project_id)
+    if not project or project.deleted_at is not None:
+        raise HTTPException(404, "Project not found")
+    if not file.filename:
+        raise HTTPException(400, "No filename")
+    is_excel = _is_excel_file(file.filename, file.content_type)
+    is_image = _is_image_file(file.content_type)
+    if not is_image and not is_excel:
+        raise HTTPException(400, "Only image (png/jpeg/webp) or Excel (.xlsx/.xls) files allowed")
+    max_mb = 10 if is_excel else 5
+    stored = _safe_filename(file.filename)
+    dest_dir = CHAT_UPLOADS_DIR / project_id
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / stored
+    content = await file.read()
+    if len(content) > max_mb * 1024 * 1024:
+        raise HTTPException(400, f"File too large (max {max_mb}MB)")
+    dest.write_bytes(content)
+    url = f"/api/projects/{project_id}/chat-attachments/{stored}"
+    return {"name": file.filename, "url": url, "type": "excel" if is_excel else "image"}
+
+
+@router.get("/{project_id}/chat-attachments/{filename}")
+async def get_chat_attachment(
+    project_id: str,
+    filename: str,
+):
+    """Serve an uploaded chat attachment."""
+    dest = CHAT_UPLOADS_DIR / project_id / filename
+    if not dest.exists() or not dest.is_file():
+        raise HTTPException(404, "Attachment not found")
+    return FileResponse(dest, filename=filename)
+
+
+@router.get("/{project_id}/participant-contacts", response_model=list[ContactOut])
+async def get_project_participant_contacts(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """返回项目所属客户的联系人列表，用于时间线事件参与人选择。无客户时返回空数组。"""
+    project = await db.get(Project, project_id)
+    if not project or project.deleted_at is not None:
+        raise HTTPException(404, "Project not found")
+    if not project.customer_id:
+        return []
+    result = await db.execute(
+        select(Contact)
+        .where(Contact.customer_id == project.customer_id)
+        .order_by(Contact.name)
+    )
+    return result.scalars().all()
+
+
+@router.get("/{project_id}/chat-attachments/{filename}/sheets")
+async def get_excel_sheets(
+    project_id: str,
+    filename: str,
+):
+    """List sheet names of an uploaded Excel file."""
+    dest = CHAT_UPLOADS_DIR / project_id / filename
+    if not dest.exists() or not dest.is_file():
+        raise HTTPException(404, "Attachment not found")
+    ext = dest.suffix.lower()
+    if ext not in ALLOWED_EXCEL_EXT:
+        raise HTTPException(400, "Not an Excel file")
+    try:
+        import pandas as pd
+        xl = pd.ExcelFile(dest)
+        return {"sheets": xl.sheet_names}
+    except Exception as e:
+        raise HTTPException(400, f"Failed to read Excel: {e!s}")
 
 
 @router.get("", response_model=list[ProjectOut])
@@ -21,7 +132,7 @@ async def list_projects(
     deleted: bool = Query(False, description="Include deleted projects (recycle bin)"),
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(Project).order_by(Project.updated_at.desc())
+    q = select(Project).options(selectinload(Project.customer)).order_by(Project.updated_at.desc())
     if deleted:
         q = q.where(Project.deleted_at.isnot(None))
     else:
@@ -59,8 +170,11 @@ async def get_ai_modify_history(
 
 @router.get("/{project_id}", response_model=ProjectOut)
 async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
-    project = await db.get(Project, project_id)
-    if not project or project.deleted_at is not None:
+    result = await db.execute(
+        select(Project).where(Project.id == project_id).options(selectinload(Project.customer))
+    )
+    project = result.scalar_one_or_none()
+    if project is None or project.deleted_at is not None:
         raise HTTPException(404, "Project not found")
     return project
 

@@ -1,7 +1,9 @@
+import base64
 import json
 import logging
 import re
 import time
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends
@@ -18,6 +20,67 @@ from app.services.memos_client import search_memory as memos_search_memory
 
 router = APIRouter()
 logger = logging.getLogger("genview.chat")
+
+CHAT_UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads" / "chat"
+
+
+EXCEL_EXT = (".xlsx", ".xls")
+
+
+def _parse_excel_to_text(file_path: Path, sheet_name: str | None = None, max_rows: int = 200) -> str:
+    """Parse Excel file to Markdown table text for LLM context."""
+    try:
+        import pandas as pd
+        df = pd.read_excel(file_path, sheet_name=sheet_name or 0)
+        df = df.head(max_rows)
+        try:
+            from tabulate import tabulate
+            return tabulate(df, headers="keys", tablefmt="pipe", showindex=False)
+        except ImportError:
+            return df.to_csv(index=False)
+    except Exception as e:
+        return f"[Excel 解析失败: {e!s}]"
+
+
+def _resolve_excel_url_to_path(url: str, project_id: str | None) -> Path | None:
+    """Extract local file path from /api/projects/{id}/chat-attachments/{fn}."""
+    if not url or not url.startswith("/api/projects/") or "/chat-attachments/" not in url:
+        return None
+    m = re.match(r"/api/projects/([^/]+)/chat-attachments/([^/]+)", url)
+    if not m:
+        return None
+    pid, filename = m.groups()
+    if project_id and pid != project_id:
+        return None
+    dest = CHAT_UPLOADS_DIR / pid / filename
+    if not dest.exists() or not dest.is_file():
+        return None
+    if dest.suffix.lower() not in EXCEL_EXT:
+        return None
+    return dest
+
+
+def _resolve_image_url_to_data(url: str, project_id: str | None) -> str:
+    """Convert /api/projects/{id}/chat-attachments/{fn} to data URL for OpenRouter."""
+    if not url or not url.startswith("/api/projects/") or "/chat-attachments/" not in url:
+        return url
+    m = re.match(r"/api/projects/([^/]+)/chat-attachments/([^/]+)", url)
+    if not m:
+        return url
+    pid, filename = m.groups()
+    if project_id and pid != project_id:
+        return url
+    dest = CHAT_UPLOADS_DIR / pid / filename
+    if not dest.exists() or not dest.is_file():
+        return url
+    try:
+        data = dest.read_bytes()
+        ext = dest.suffix.lower()
+        mime = "image/png" if ext == ".png" else "image/jpeg" if ext in (".jpg", ".jpeg") else "image/webp"
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"data:{mime};base64,{b64}"
+    except Exception:
+        return url
 
 SYSTEM_PROMPT_TEMPLATE = """你是一个资深的工业软件 UI/UX 架构师，名为 GenView AI。当前系统的全局配置如下：
 - 主业务风格 (Theme): {theme}
@@ -44,8 +107,9 @@ SYSTEM_PROMPT_TEMPLATE = """你是一个资深的工业软件 UI/UX 架构师，
    - 多文件支持：格式为 ```python:utils.py，主入口为 ```python。
 6. 【重要】在多轮对话修改时，绝不允许截断代码或使用 "// ... existing code ..." 之类的省略写法。必须每次输出完整的组件代码！
 7. 请先用中文简要描述你的设计思路，然后输出代码。
+8. 若用户附带参考图片（截图、设计稿、线框图等），请结合图片理解需求并生成对应的界面或架构图。若用户附带 Excel 表格，请根据表格内容理解需求并生成对应的界面或架构图。
 【回复风格】用词克制、务实，贴近工程师日常沟通。禁止使用夸张、营销式表述（如「革命性」「颠覆性」「完美」「极致」「非常棒」「超强」等）；避免过度热情（如「太棒了！」「太好了！」）。直接说明实现思路和注意事项即可，少用修饰词。
-8. 所有生成的 UI 应该看起来专业、高保真、像真实的生产级工业软件。尽可能使用丰富的数据、统计卡片、图表和表格来填充页面。"""
+9. 所有生成的 UI 应该看起来专业、高保真、像真实的生产级工业软件。尽可能使用丰富的数据、统计卡片、图表和表格来填充页面。"""
 
 PLAN_SYSTEM_PROMPT = """你是一个资深的工业软件产品顾问，名为 GenView AI。你擅长与用户进行头脑风暴、讨论产品思路、激发设计灵感。
 
@@ -55,6 +119,8 @@ PLAN_SYSTEM_PROMPT = """你是一个资深的工业软件产品顾问，名为 G
 - 帮助用户理清思路、激发灵感
 
 你不需要输出代码或架构图，专注于对话和思考。若用户明确要求生成页面或代码，可建议其切换到 Agent 模式。
+
+若用户附带参考图片（截图、设计稿、线框图等），请结合图片理解需求并参与讨论、给出建议。若用户附带 Excel 表格，请根据表格内容参与讨论、给出建议。
 
 【回复风格】用词克制、务实，贴近工程师日常沟通。禁止夸张、营销式表述；避免过度热情。直接分析需求、给出建议即可。"""
 
@@ -98,16 +164,50 @@ def _build_system_prompt(req: ChatRequest) -> str:
         nav_layout=req.nav_layout,
     )
     if req.current_code:
-        prompt += f"\n\n当前画布上正在渲染的代码如下（用户可能希望基于此进行修改）：\n```tsx\n{req.current_code}\n```"
+        code_to_show = req.current_code
+        # 超长代码截断以降低 token 消耗（约 6000 字符 ≈ 1500 tokens）
+        if len(code_to_show) > 6000:
+            code_to_show = code_to_show[:6000] + "\n\n// ... (代码过长已截断)"
+        prompt += f"\n\n当前画布上正在渲染的代码如下（用户可能希望基于此进行修改）：\n```tsx\n{code_to_show}\n```"
     return prompt
 
 
 def _convert_messages(req: ChatRequest) -> list[dict]:
-    """Convert frontend UIMessage format to OpenAI messages format."""
+    """Convert frontend UIMessage format to OpenAI/OpenRouter vision format."""
     result: list[dict] = []
     for msg in req.messages:
-        text = "".join(p.text for p in msg.parts if p.type == "text")
-        if text:
+        text_parts = [p.text for p in msg.parts if p.type == "text" and p.text]
+        image_parts = [
+            {"type": "image_url", "image_url": {"url": p.image_url}}
+            for p in msg.parts
+            if p.type == "image_url" and p.image_url
+        ]
+        excel_texts: list[str] = []
+        for p in msg.parts:
+            if p.type == "excel_file" and p.excel_url:
+                path = _resolve_excel_url_to_path(p.excel_url, req.project_id)
+                if path:
+                    table = _parse_excel_to_text(path, p.sheet_name)
+                    sheet_label = p.sheet_name or "默认"
+                    logger.info(
+                        "[Chat] Excel sheet content | file=%s | sheet=%s\n%s",
+                        path.name,
+                        sheet_label,
+                        table,
+                    )
+                    excel_texts.append(f"用户上传了 Excel 表格，指定 sheet「{sheet_label}」，内容如下：\n\n{table}")
+        if not text_parts and not image_parts and not excel_texts:
+            continue
+        text = " ".join(text_parts) if text_parts else ""
+        if excel_texts:
+            text = (text + "\n\n" if text else "") + "\n\n".join(excel_texts)
+        if image_parts:
+            content: list[dict] = []
+            if text:
+                content.append({"type": "text", "text": text})
+            content.extend(image_parts)
+            result.append({"role": msg.role, "content": content})
+        else:
             result.append({"role": msg.role, "content": text})
     return result
 
@@ -120,6 +220,19 @@ def _truncate_messages(messages: list[dict], max_rounds: int) -> list[dict]:
     take = 2 * max_rounds - 1
     start = max(0, len(messages) - take)
     return messages[start:]
+
+
+def _extract_text_from_content(content) -> str:
+    """Extract plain text from content (string or vision list format)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            p.get("text", "")
+            for p in content
+            if isinstance(p, dict) and p.get("type") == "text"
+        )
+    return ""
 
 
 def _extract_code_block(text: str) -> tuple[str | None, str | None]:
@@ -197,9 +310,9 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     if settings.memos_enabled and req.conversation_id and converted:
         last_user = next((m for m in reversed(converted) if m.get("role") == "user"), None)
         if last_user:
-            query = last_user.get("content", "").strip()
+            query = _extract_text_from_content(last_user.get("content", "")).strip()
             if query:
-                memory_text = await memos_search_memory(req.conversation_id, query)
+                memory_text = await memos_search_memory(req.conversation_id, query, limit=5)
                 if memory_text:
                     system_prompt += f"\n\n{memory_text}"
                     logger.info(f"[Chat] MemOS memory injected | conversation_id={req.conversation_id}")
@@ -209,7 +322,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     if req.project_id and converted and not req.modify_selection and not req.modify_full_file:
         last_user = next((m for m in reversed(converted) if m.get("role") == "user"), None)
         if last_user:
-            query = last_user.get("content", "").strip()
+            query = _extract_text_from_content(last_user.get("content", "")).strip()
             if query:
                 kg_context = await get_retrieval_context(req.project_id, query, db)
                 if kg_context:
@@ -217,7 +330,24 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                     logger.info(f"[Chat] LightRAG context injected | project_id={req.project_id}")
 
     openai_messages = [{"role": "system", "content": system_prompt}]
-    openai_messages.extend(converted)
+    # Resolve /api/projects/.../chat-attachments/... to data URLs for OpenRouter
+    for m in converted:
+        content = m.get("content")
+        if isinstance(content, list):
+            resolved = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    url = part.get("image_url", {}).get("url") if isinstance(part.get("image_url"), dict) else part.get("image_url")
+                    if url:
+                        resolved_url = _resolve_image_url_to_data(str(url), req.project_id)
+                        resolved.append({"type": "image_url", "image_url": {"url": resolved_url}})
+                    else:
+                        resolved.append(part)
+                else:
+                    resolved.append(part)
+            openai_messages.append({"role": m["role"], "content": resolved})
+        else:
+            openai_messages.append(m)
 
     model = req.model or settings.default_model
 
@@ -242,10 +372,21 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         last_msg = req.messages[-1]
         if last_msg.role == "user":
             user_text = "".join(p.text for p in last_msg.parts if p.type == "text")
+            attachment_urls: list[dict] = []
+            for p in last_msg.parts:
+                if p.type == "image_url" and p.image_url and not p.image_url.startswith("data:"):
+                    attachment_urls.append({"url": p.image_url})
+                elif p.type == "excel_file" and p.excel_url:
+                    attachment_urls.append({
+                        "url": p.excel_url,
+                        "type": "excel",
+                        "sheet_name": p.sheet_name,
+                    })
             db.add(Message(
                 conversation_id=req.conversation_id,
                 role="user",
                 content=user_text,
+                attachments=attachment_urls if attachment_urls else None,
             ))
             await db.commit()
 
@@ -262,7 +403,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         # #endregion
 
         # 在调用 LLM 之前计算输入 token 数
-        full_prompt_text = "\n".join(m.get("content", "") for m in openai_messages)
+        full_prompt_text = "\n".join(_extract_text_from_content(m.get("content", "")) for m in openai_messages)
         prompt_token_count = _count_tokens(full_prompt_text)
         yield _sse_event("input_tokens", {"prompt_token_count": prompt_token_count})
 
@@ -413,6 +554,17 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
                 logger.error(f"[Chat] Read timeout: {e}")
                 yield _sse_event("error", {"message": "AI response timed out", "code": "timeout"})
                 return
+            except httpx.RemoteProtocolError as e:
+                logger.error(f"[Chat] Remote connection closed: {e}")
+                yield _sse_event("error", {
+                    "message": "AI 服务连接中断，请重试或减少附件内容",
+                    "code": "connection_error",
+                })
+                return
+            except httpx.HTTPError as e:
+                logger.error(f"[Chat] HTTP error during stream: {e}")
+                yield _sse_event("error", {"message": "AI 服务异常，请重试", "code": "connection_error"})
+                return
 
         elapsed = time.time() - start_time
 
@@ -471,7 +623,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
             last_user = next((m for m in reversed(converted) if m.get("role") == "user"), None)
             if last_user:
                 to_add = [
-                    {"role": "user", "content": last_user.get("content", "")},
+                    {"role": "user", "content": _extract_text_from_content(last_user.get("content", ""))},
                     {"role": "assistant", "content": full_text},
                 ]
                 await memos_add_message(req.conversation_id, to_add)

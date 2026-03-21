@@ -43,8 +43,11 @@ export default function ProjectWorkspace() {
 
   const showMainContent = activeTab === "conversations";
 
-  const mainContent = showMainContent ? (
-    <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+  const mainContent = (
+    <div
+      className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden"
+      style={{ display: showMainContent ? undefined : "none" }}
+    >
       {/* Mobile tab bar */}
       <div
         className="md:hidden flex gap-1 p-2 flex-shrink-0"
@@ -104,7 +107,7 @@ export default function ProjectWorkspace() {
         </div>
       </div>
     </div>
-  ) : null;
+  );
 
   return (
     <div data-theme={effectiveTheme} className="flex flex-col h-screen w-screen overflow-hidden">

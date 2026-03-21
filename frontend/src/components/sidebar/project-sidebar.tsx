@@ -60,6 +60,18 @@ import { PAGE_TEMPLATES } from "@/lib/page-templates";
 
 export type ProjectSidebarTab = "conversations" | "resources" | "design" | "timeline" | "knowledge" | "settings";
 
+// 防止 Strict Mode 下 effect 双重执行导致重复创建 conversation
+const createConversationPromises = new Map<string, Promise<Conversation>>();
+function getOrCreateConversation(projectId: string): Promise<Conversation> {
+  let p = createConversationPromises.get(projectId);
+  if (!p) {
+    p = createConversation(projectId, "New Conversation");
+    createConversationPromises.set(projectId, p);
+    p.finally(() => createConversationPromises.delete(projectId));
+  }
+  return p;
+}
+
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -1027,7 +1039,7 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
               );
             }
           } else {
-            const created = await createConversation(pid!, "New Conversation");
+            const created = await getOrCreateConversation(pid!);
             cid = created.id;
             setConversationId(cid);
           }
@@ -1494,6 +1506,12 @@ export function ProjectSidebar({ projectIdFromRoute, initialTab, activeTab: cont
           className={`overflow-y-auto px-4 py-3 min-w-0 ${isNonChatTab ? "flex-1 min-h-0" : "flex-shrink-0"}`}
           style={isNonChatTab ? { borderTop: "1px solid var(--gen-border)", background: "var(--gen-background)" } : { maxHeight: "50vh", borderTop: "1px solid var(--gen-border)", background: "var(--gen-background)" }}
         >
+          {/* 隐藏的 Chat 区域，保持挂载以维持流式输出不中断 */}
+          {children && (
+            <div style={{ display: "none" }} aria-hidden="true">
+              {children}
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 size={20} className="animate-spin" style={{ color: "var(--gen-primary)" }} />

@@ -1,0 +1,21 @@
+{
+  "hybrid:keywords:08f56a22cc504b1ed72f285012f7dbce": {
+    "return": "{\"high_level_keywords\": [\"\\u5fae\\u670d\\u52a1\\u67b6\\u6784\", \"\\u7cfb\\u7edf\\u67b6\\u6784\\u56fe\", \"\\u7cfb\\u7edf\\u8bbe\\u8ba1\"], \"low_level_keywords\": [\"\\u670d\\u52a1\\u6ce8\\u518c\\u53d1\\u73b0\", \"\\u8d1f\\u8f7d\\u5747\\u8861\", \"API \\u7f51\\u5173\", \"\\u914d\\u7f6e\\u4e2d\\u5fc3\", \"\\u94fe\\u8def\\u8ffd\\u8e2a\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "画一个微服务系统架构图",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "update_time": 1773713809,
+    "_id": "hybrid:keywords:08f56a22cc504b1ed72f285012f7dbce"
+  }
+}

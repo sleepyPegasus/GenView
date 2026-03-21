@@ -3,12 +3,64 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 
+# ── Customer ──────────────────────────────────────────────
+class CustomerCreate(BaseModel):
+    name: str
+    code: str | None = None
+    contact: str | None = None
+
+
+class CustomerUpdate(BaseModel):
+    name: str | None = None
+    code: str | None = None
+    contact: str | None = None
+
+
+class CustomerOut(BaseModel):
+    id: str
+    name: str
+    code: str | None = None
+    contact: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ContactCreate(BaseModel):
+    name: str
+    role: str | None = None
+    phone: str | None = None
+    email: str | None = None
+
+
+class ContactUpdate(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    phone: str | None = None
+    email: str | None = None
+
+
+class ContactOut(BaseModel):
+    id: str
+    customer_id: str
+    name: str
+    role: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Project ──────────────────────────────────────────────
 class ProjectCreate(BaseModel):
     name: str = "GenView Dashboard"
     logo_url: str = ""
     nav_layout: str = "side"
     theme: str = "modern-b2b"
+    customer_id: str | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -25,6 +77,7 @@ class ProjectUpdate(BaseModel):
     app_name_color: str | None = None
     nav_config: dict | None = None
     nav_menu_items: list[dict] | None = None
+    customer_id: str | None = None
 
 
 class ProjectOut(BaseModel):
@@ -42,6 +95,8 @@ class ProjectOut(BaseModel):
     app_name_color: str | None = None
     nav_config: dict | None = None
     nav_menu_items: list[dict] | None = None
+    customer_id: str | None = None
+    customer_name: str | None = None
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
@@ -102,6 +157,7 @@ class MessageOut(BaseModel):
     conversation_id: str
     role: str
     content: str
+    attachments: list[dict] | None = None  # [{"url": str}, ...]
     code_block: str | None = None
     code_language: str | None = None
     created_at: datetime
@@ -121,8 +177,11 @@ class AiModifyMessageOut(BaseModel):
 
 # ── Chat ─────────────────────────────────────────────────
 class ChatMessagePart(BaseModel):
-    type: str
+    type: str  # "text" | "image_url" | "excel_file"
     text: str = ""
+    image_url: str | None = None  # data:image/...;base64,... or https://...
+    excel_url: str | None = None  # /api/projects/.../chat-attachments/xxx.xlsx
+    sheet_name: str | None = None  # user-specified sheet name for excel
 
 
 class ChatMessage(BaseModel):
@@ -183,6 +242,7 @@ class TimelineEventCreate(BaseModel):
     description: str | None = None
     outcome: str | None = None
     participants: str | None = None
+    participant_contact_ids: list[str] | None = None
     tags: list[str] | None = None
     attachments: list[dict] | None = None  # [{"name": str, "url": str}, ...]
     sort_order: int = 0
@@ -201,6 +261,7 @@ class TimelineEventUpdate(BaseModel):
     description: str | None = None
     outcome: str | None = None
     participants: str | None = None
+    participant_contact_ids: list[str] | None = None
     tags: list[str] | None = None
     attachments: list[dict] | None = None
     sort_order: int | None = None
@@ -221,6 +282,7 @@ class TimelineEventOut(BaseModel):
     description: str | None = None
     outcome: str | None = None
     participants: str | None = None
+    participant_contact_ids: list[str] | None = None
     tags: list[str] | None = None
     attachments: list[dict] | None = None
     sort_order: int

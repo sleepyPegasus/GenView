@@ -14,3 +14,7 @@ playwright>=1.40.0
 lightrag-hku>=2.0.0
 ollama>=0.3.0
 numpy>=1.24.0
+openpyxl>=3.1.0
+xlrd>=1.2.0,<2
+tabulate>=0.9.0
+pandas>=2.0.0

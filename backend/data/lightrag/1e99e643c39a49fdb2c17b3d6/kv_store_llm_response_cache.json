@@ -1,0 +1,22 @@
+{
+  "hybrid:keywords:38836ad0aa6be7bfccb03b6c0981f4fc": {
+    "return": "{\"high_level_keywords\": [\"\\u4ef7\\u683c\\u533a\\u95f4\\u6307\\u5bfc\", \"\\u5b9a\\u4ef7\\u7b56\\u7565\", \"\\u5e02\\u573a\\u7ade\\u54c1\\u5206\\u6790\", \"\\u91c7\\u8d2d\\u6210\\u672c\\u4f18\\u5316\"], \"low_level_keywords\": [\"\\u5353\\u521b\\u8d44\\u8baf\\u5e73\\u53f0\", \"\\u7a7a\\u5206\\u5382\", \"\\u65b9\\u5706 200km\", \"\\u76ee\\u6807\\u5de5\\u5382\", \"\\u6700\\u4f4e\\u4ef7\", \"\\u6700\\u9ad8\\u4ef7\"]}",
+    "cache_type": "keywords",
+    "chunk_id": null,
+    "original_prompt": "客户提出来的方案：从卓创这种资讯平台对接目标工厂方圆200km内的其他空分厂的价格，用他们的最低价和最高价来做一个价格区间来指导定价，请评价这个方案并给出可行的建议或者优化方案",
+    "queryparam": {
+      "mode": "hybrid",
+      "response_type": "Multiple Paragraphs",
+      "top_k": 40,
+      "chunk_top_k": 20,
+      "max_entity_tokens": 6000,
+      "max_relation_tokens": 8000,
+      "max_total_tokens": 30000,
+      "user_prompt": "",
+      "enable_rerank": true
+    },
+    "create_time": 1773737704,
+    "update_time": 1773737704,
+    "_id": "hybrid:keywords:38836ad0aa6be7bfccb03b6c0981f4fc"
+  }
+}
